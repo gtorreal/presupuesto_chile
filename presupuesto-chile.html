@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Presupuesto Chile 2024</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+    }
+
+    header {
+      background: #0039A6;
+      color: white;
+      display: flex;
+      align-items: stretch;
+    }
+    .header-stripe { width: 12px; background: #D52B1E; flex-shrink: 0; }
+    .header-content { padding: 24px 32px; flex: 1; }
+    .header-content h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: 1px; }
+    .header-content p  { font-size: 0.9rem; opacity: 0.75; margin-top: 4px; }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* STAT CARDS */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      border-top: 4px solid #0039A6;
+    }
+    .stat-card.red   { border-top-color: #D52B1E; }
+    .stat-card.green { border-top-color: #2e9e6b; }
+    .stat-card.gray  { border-top-color: #888; }
+    .stat-card .label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; }
+    .stat-card .value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+    .stat-card .sub   { font-size: 0.8rem; color: #999; margin-top: 4px; }
+
+    /* CHARTS */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 700px) { .charts-row { grid-template-columns: 1fr; } }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    }
+    .card h2 { font-size: 1rem; color: #333; margin-bottom: 20px; font-weight: 600; }
+
+    /* TABLE */
+    .table-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+      overflow-x: auto;
+    }
+    .table-card h2 { font-size: 1rem; color: #333; margin-bottom: 6px; font-weight: 600; }
+    .table-hint { font-size: 0.78rem; color: #999; margin-bottom: 18px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+
+    thead th {
+      text-align: left;
+      padding: 10px 12px;
+      background: #f8f9fb;
+      color: #555;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid #e8eaf0;
+    }
+
+    /* MINISTRY ROW */
+    tr.ministry-row {
+      border-bottom: 1px solid #f0f2f5;
+      transition: background 0.12s;
+    }
+    tr.ministry-row:hover { background: #f4f6fb; }
+    tr.ministry-row.expandable { cursor: pointer; }
+
+    td { padding: 11px 12px; vertical-align: middle; }
+
+    .ministry-name { display: flex; align-items: center; font-weight: 500; gap: 8px; }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    .chevron {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: #eef0f5;
+      color: #888;
+      font-size: 0.65rem;
+      transition: transform 0.2s, background 0.15s;
+      flex-shrink: 0;
+    }
+    tr.open .chevron { transform: rotate(90deg); background: #dde3f5; color: #0039A6; }
+
+    .bar-cell { width: 160px; }
+    .mini-bar-bg   { background: #eef0f5; border-radius: 4px; height: 8px; width: 100%; }
+    .mini-bar-fill { height: 8px; border-radius: 4px; }
+
+    .pct    { color: #555; font-weight: 600; white-space: nowrap; }
+    .amount { color: #333; white-space: nowrap; }
+
+    /* DETAIL ROW */
+    tr.detail-row { display: none; }
+    tr.detail-row.visible { display: table-row; }
+
+    .detail-inner {
+      padding: 0 12px 16px 36px;
+      background: #f8f9fb;
+      border-bottom: 2px solid #e8eaf0;
+    }
+
+    .sub-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 10px;
+    }
+    .sub-table thead th {
+      background: transparent;
+      border-bottom: 1px solid #e0e3ec;
+      color: #777;
+      font-size: 0.72rem;
+      padding: 6px 8px;
+    }
+    .sub-table tbody td { padding: 7px 8px; border-bottom: 1px solid #eef0f5; }
+    .sub-table tbody tr:last-child td { border-bottom: none; }
+    .sub-table tbody tr:hover { background: #eef0f5; }
+
+    .sub-bar-bg   { background: #e0e3ec; border-radius: 3px; height: 6px; width: 100%; min-width: 80px; }
+    .sub-bar-fill { height: 6px; border-radius: 3px; }
+
+    footer { text-align: center; padding: 20px; font-size: 0.78rem; color: #aaa; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-stripe"></div>
+  <div class="header-content">
+    <h1>&#127464;&#127473; Presupuesto del Gobierno de Chile — 2024</h1>
+    <p>Distribución del gasto público por ministerio · Cifras en miles de millones de pesos (MM$)</p>
+  </div>
+</header>
+
+<main>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Presupuesto Total</div>
+      <div class="value">72.336 MM$</div>
+      <div class="sub">~USD 78.000 millones</div>
+    </div>
+    <div class="stat-card red">
+      <div class="label">Mayor gasto</div>
+      <div class="value">Trabajo</div>
+      <div class="sub">35,3% del total</div>
+    </div>
+    <div class="stat-card green">
+      <div class="label">Gasto social (Edu+Salud+Trabajo)</div>
+      <div class="value">65,6%</div>
+      <div class="sub">de todo el presupuesto</div>
+    </div>
+    <div class="stat-card gray">
+      <div class="label">Ministerios incluidos</div>
+      <div class="value">22</div>
+      <div class="sub">+ servicios asociados</div>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="card">
+      <h2>Distribución por Ministerio</h2>
+      <canvas id="donutChart" height="280"></canvas>
+    </div>
+    <div class="card">
+      <h2>Gasto en Miles de Millones de $</h2>
+      <canvas id="barChart" height="280"></canvas>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <h2>Detalle por Ministerio</h2>
+    <p class="table-hint">Haz clic en un ministerio para ver sus principales cuentas</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Ministerio</th>
+          <th>MM$ (miles de millones)</th>
+          <th>% del total</th>
+          <th class="bar-cell">Proporción</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Datos aproximados basados en la Ley de Presupuestos 2024 · Fuente: Dirección de Presupuestos (DIPRES), Ministerio de Hacienda de Chile
+</footer>
+
+<script>
+  const ministerios = [
+    {
+      nombre: "Trabajo y Previsión Social", monto: 25530,
+      cuentas: [
+        { nombre: "Instituto de Previsión Social (IPS – ex Cajas)",  monto: 10200 },
+        { nombre: "Pensión Garantizada Universal (PGU)",              monto:  8400 },
+        { nombre: "Seguro de Desempleo",                              monto:  2900 },
+        { nombre: "Programas de Empleo",                              monto:  1500 },
+        { nombre: "SENCE – Formación y Capacitación",                 monto:   830 },
+        { nombre: "Administración y otros",                           monto:  1700 },
+      ]
+    },
+    {
+      nombre: "Educación", monto: 11870,
+      cuentas: [
+        { nombre: "Subvención Escolar (básica y media)",              monto: 4300 },
+        { nombre: "Educación Superior y Becas",                       monto: 3100 },
+        { nombre: "JUNAEB (alimentación y salud escolar)",            monto:  820 },
+        { nombre: "Educación Parvularia (JUNJI / Integra)",           monto:  950 },
+        { nombre: "Infraestructura Educacional",                      monto:  680 },
+        { nombre: "Administración y otros",                           monto: 2020 },
+      ]
+    },
+    {
+      nombre: "Salud", monto: 10030,
+      cuentas: [
+        { nombre: "FONASA",                                           monto: 5800 },
+        { nombre: "Red Hospitalaria y Servicios de Salud",            monto: 1680 },
+        { nombre: "Atención Primaria de Salud (APS)",                 monto: 1550 },
+        { nombre: "Programas de Salud Pública",                       monto:  500 },
+        { nombre: "Administración y otros",                           monto:  500 },
+      ]
+    },
+    {
+      nombre: "Interior y Seg. Pública", monto: 5180,
+      cuentas: [
+        { nombre: "Carabineros de Chile",                             monto: 2300 },
+        { nombre: "Fondos de Desarrollo Regional (SUBDERE)",          monto: 1100 },
+        { nombre: "Policía de Investigaciones (PDI)",                  monto:  870 },
+        { nombre: "Gestión de Fronteras e Inmigración",               monto:  290 },
+        { nombre: "Administración y otros",                           monto:  620 },
+      ]
+    },
+    {
+      nombre: "Hacienda", monto: 4250,
+      cuentas: [
+        { nombre: "Servicio de la Deuda Pública",                     monto: 2500 },
+        { nombre: "Servicio de Impuestos Internos (SII)",             monto:  420 },
+        { nombre: "Tesorería General de la República",                monto:  260 },
+        { nombre: "Servicio Nacional de Aduanas",                     monto:  220 },
+        { nombre: "Administración y otros",                           monto:  850 },
+      ]
+    },
+    {
+      nombre: "Defensa Nacional", monto: 3620,
+      cuentas: [
+        { nombre: "Ejército de Chile",                                monto: 1420 },
+        { nombre: "Armada de Chile",                                  monto: 1050 },
+        { nombre: "Fuerza Aérea de Chile",                            monto:  900 },
+        { nombre: "DGMN y servicios conjuntos",                       monto:  250 },
+      ]
+    },
+    {
+      nombre: "Obras Públicas", monto: 2910,
+      cuentas: [
+        { nombre: "Dirección de Vialidad",                            monto: 1250 },
+        { nombre: "Concesiones de Infraestructura",                   monto:  600 },
+        { nombre: "Obras Hidráulicas",                                monto:  420 },
+        { nombre: "Aeropuertos (DGAC)",                               monto:  220 },
+        { nombre: "Arquitectura – Edificios Públicos",                monto:  270 },
+        { nombre: "Administración y otros",                           monto:  150 },
+      ]
+    },
+    {
+      nombre: "Vivienda y Urbanismo", monto: 2280,
+      cuentas: [
+        { nombre: "Subsidios Habitacionales",                         monto: 1350 },
+        { nombre: "Mejoramiento de Barrios y Pavimentación",          monto:  430 },
+        { nombre: "Campamentos",                                      monto:  210 },
+        { nombre: "Infraestructura Urbana",                           monto:  200 },
+        { nombre: "Administración y otros",                           monto:   90 },
+      ]
+    },
+    {
+      nombre: "Transporte y Telecom.", monto: 1820,
+      cuentas: [
+        { nombre: "Subsidio Transporte Público (Red Metropolitana)",  monto:  950 },
+        { nombre: "Subsidio Transporte Regional",                     monto:  380 },
+        { nombre: "Telecomunicaciones y Conectividad",                monto:  200 },
+        { nombre: "Infraestructura Aeronáutica",                      monto:  160 },
+        { nombre: "Administración y otros",                           monto:  130 },
+      ]
+    },
+    {
+      nombre: "Desarrollo Social y Familia", monto: 1590,
+      cuentas: [
+        { nombre: "Mejor Niñez (ex SENAME)",                          monto:  410 },
+        { nombre: "Chile Solidario e Ingreso Familiar",               monto:  430 },
+        { nombre: "SENAMA – Adulto Mayor",                            monto:  320 },
+        { nombre: "SENADIS – Discapacidad",                           monto:  210 },
+        { nombre: "Administración y otros",                           monto:  220 },
+      ]
+    },
+    { nombre: "Justicia y DDHH",      monto:  940 },
+    { nombre: "Agricultura",          monto:  690 },
+    { nombre: "Energía",              monto:  550 },
+    { nombre: "Relaciones Exteriores",monto:  380 },
+    { nombre: "Otros",                monto:  696 },
+  ];
+
+  const colors = [
+    "#0039A6","#D52B1E","#2e9e6b","#f59e0b","#8b5cf6",
+    "#06b6d4","#ef4444","#10b981","#f97316","#6366f1",
+    "#84cc16","#ec4899","#14b8a6","#a855f7","#94a3b8"
+  ];
+
+  const total  = ministerios.reduce((s, m) => s + m.monto, 0);
+  const labels = ministerios.map(m => m.nombre);
+  const data   = ministerios.map(m => m.monto);
+
+  // DONUT
+  new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      cutout: '60%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: MM$ ${ctx.raw.toLocaleString('es-CL')} (${(ctx.raw/total*100).toFixed(1)}%)`
+          }
+        }
+      }
+    }
+  });
+
+  // BAR
+  new Chart(document.getElementById('barChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: colors, borderRadius: 6, borderSkipped: false }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` MM$ ${ctx.raw.toLocaleString('es-CL')}` } }
+      },
+      scales: {
+        x: { grid: { color: '#f0f2f5' }, ticks: { callback: v => `${(v/1000).toFixed(0)}B` } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    }
+  });
+
+  // TABLE
+  const tbody = document.getElementById('table-body');
+
+  ministerios.forEach((m, i) => {
+    const pct        = (m.monto / total * 100).toFixed(1);
+    const hasDetail  = Array.isArray(m.cuentas) && m.cuentas.length > 0;
+    const color      = colors[i];
+
+    // Main row
+    const tr = document.createElement('tr');
+    tr.className = 'ministry-row' + (hasDetail ? ' expandable' : '');
+    tr.innerHTML = `
+      <td>
+        <span class="ministry-name">
+          ${hasDetail ? '<span class="chevron">&#9654;</span>' : '<span style="width:18px;display:inline-block"></span>'}
+          <span class="dot" style="background:${color}"></span>
+          ${m.nombre}
+        </span>
+      </td>
+      <td class="amount">MM$ ${m.monto.toLocaleString('es-CL')}</td>
+      <td class="pct">${pct}%</td>
+      <td class="bar-cell">
+        <div class="mini-bar-bg">
+          <div class="mini-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+
+    // Detail row
+    if (hasDetail) {
+      const maxSub = Math.max(...m.cuentas.map(c => c.monto));
+      const subRows = m.cuentas.map(c => {
+        const subPct    = (c.monto / m.monto * 100).toFixed(1);
+        const barWidth  = (c.monto / maxSub * 100).toFixed(1);
+        return `<tr>
+          <td>${c.nombre}</td>
+          <td class="amount">MM$ ${c.monto.toLocaleString('es-CL')}</td>
+          <td class="pct">${subPct}%</td>
+          <td>
+            <div class="sub-bar-bg">
+              <div class="sub-bar-fill" style="width:${barWidth}%;background:${color}"></div>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+
+      const detailTr = document.createElement('tr');
+      detailTr.className = 'detail-row';
+      detailTr.innerHTML = `
+        <td colspan="4" style="padding:0">
+          <div class="detail-inner">
+            <table class="sub-table">
+              <thead>
+                <tr>
+                  <th>Cuenta / Programa</th>
+                  <th>MM$</th>
+                  <th>% del ministerio</th>
+                  <th style="width:160px">Proporción</th>
+                </tr>
+              </thead>
+              <tbody>${subRows}</tbody>
+            </table>
+          </div>
+        </td>`;
+      tbody.appendChild(detailTr);
+
+      tr.addEventListener('click', () => {
+        const open = tr.classList.toggle('open');
+        detailTr.classList.toggle('visible', open);
+      });
+    }
+  });
+</script>
+
+</body>
+</html>
