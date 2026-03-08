@@ -12,10 +12,15 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from auth import decode_token
-from routes import shadow, correlations, model, config, auth as auth_routes
+from auth import decode_token, seed_users_if_empty
+from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+
+# Comma-separated list of allowed origins, e.g. "https://shadow.buda.com,http://localhost:3000"
+# Defaults to "*" for local dev; set explicitly in production.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",")]
 
 pool: asyncpg.Pool | None = None
 
@@ -33,7 +38,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
         token = header.split(" ", 1)[1]
-        if not decode_token(token):
+        if decode_token(token) is None:
             return JSONResponse({"detail": "Invalid or expired token"}, status_code=401)
 
         return await call_next(request)
@@ -44,6 +49,7 @@ async def lifespan(app: FastAPI):
     global pool
     pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
     app.state.pool = pool
+    await seed_users_if_empty(pool)
     yield
     await pool.close()
 
@@ -56,7 +62,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,6 +73,7 @@ app.include_router(shadow.router, prefix="/api/v1")
 app.include_router(correlations.router, prefix="/api/v1")
 app.include_router(model.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
+app.include_router(users_routes.router)
 
 
 @app.get("/health")
