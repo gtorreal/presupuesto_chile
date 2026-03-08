@@ -5,7 +5,10 @@ import FactorsTable from "./components/FactorsTable";
 import HistoricalChart from "./components/HistoricalChart";
 import CorrelationMatrix from "./components/CorrelationMatrix";
 import CalibrationPanel from "./components/CalibrationPanel";
+import SettingsPanel from "./components/SettingsPanel";
+import LogsPanel from "./components/LogsPanel";
 import LoginPage from "./components/LoginPage";
+import BudaLogo from "./components/BudaLogo";
 
 const TABS = [
   { id: "acerca", label: "Acerca de" },
@@ -14,11 +17,22 @@ const TABS = [
   { id: "historical", label: "Histórico" },
   { id: "correlations", label: "Correlaciones" },
   { id: "calibration", label: "Calibración" },
+  { id: "logs", label: "Logs" },
+  { id: "settings", label: "Configuración" },
 ];
+
+function parseJwt(token) {
+  try {
+    return JSON.parse(atob(token.split(".")[1]));
+  } catch {
+    return null;
+  }
+}
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem("shadow_token"));
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [currentUser, setCurrentUser] = useState(null);
 
   // Listen for session expiry triggered by the API client
   useEffect(() => {
@@ -26,6 +40,28 @@ export default function App() {
     window.addEventListener("shadow:logout", onLogout);
     return () => window.removeEventListener("shadow:logout", onLogout);
   }, []);
+
+  // Fetch current user info after login
+  useEffect(() => {
+    if (!token) {
+      setCurrentUser(null);
+      return;
+    }
+    const payload = parseJwt(token);
+    if (!payload) return;
+
+    fetch("/api/v1/users/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) setCurrentUser(data);
+        else setCurrentUser({ username: payload.sub, role: payload.role || "admin", otp_enabled: false });
+      })
+      .catch(() => {
+        setCurrentUser({ username: payload.sub, role: payload.role || "admin", otp_enabled: false });
+      });
+  }, [token]);
 
   function handleLogin(newToken) {
     setToken(newToken);
@@ -46,9 +82,7 @@ export default function App() {
       <header className="border-b border-gray-800 bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-              <span className="text-gray-900 font-bold text-sm">₿</span>
-            </div>
+            <BudaLogo size={32} />
             <div>
               <h1 className="font-bold text-gray-100 leading-none">Shadow USDCLP</h1>
               <p className="text-xs text-gray-500">Buda.com — Índice sintético</p>
@@ -59,6 +93,9 @@ export default function App() {
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
               Live
             </span>
+            {currentUser && (
+              <span className="text-xs text-gray-600">{currentUser.username}</span>
+            )}
             <button
               onClick={handleLogout}
               className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
@@ -101,6 +138,10 @@ export default function App() {
         {activeTab === "historical" && <HistoricalChart />}
         {activeTab === "correlations" && <CorrelationMatrix />}
         {activeTab === "calibration" && <CalibrationPanel />}
+        {activeTab === "logs" && <LogsPanel />}
+        {activeTab === "settings" && currentUser && (
+          <SettingsPanel currentUser={currentUser} />
+        )}
       </main>
     </div>
   );

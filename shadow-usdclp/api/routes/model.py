@@ -5,6 +5,19 @@ import os
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from auth import decode_token
+from audit import log_event
+
+
+def _current_username(request: Request) -> str | None:
+    token = request.headers.get("Authorization", "").split(" ", 1)[-1]
+    user = decode_token(token)
+    return user["username"] if user else None
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
 
 def _json(v):
     if v is None:
@@ -108,6 +121,12 @@ async def activate_model(req: ActivateRequest, request: Request):
                 "UPDATE model_params SET is_active = TRUE WHERE id = $1", req.param_id
             )
 
+    await log_event(
+        pool, "model_activate",
+        username=_current_username(request),
+        ip=_client_ip(request),
+        detail={"param_id": req.param_id},
+    )
     return {"success": True, "activated_id": req.param_id}
 
 
@@ -136,4 +155,10 @@ async def save_params(req: SaveParamsRequest, request: Request):
             req.notes,
         )
 
+    await log_event(
+        pool, "model_save",
+        username=_current_username(request),
+        ip=_client_ip(request),
+        detail={"name": req.name, "param_id": row["id"]},
+    )
     return {"id": row["id"], "created_at": row["created_at"].isoformat()}

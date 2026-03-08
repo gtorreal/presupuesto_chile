@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from auth import decode_token
+from audit import log_event
+
 router = APIRouter()
 
 CONFIG_KEYS = {
@@ -38,4 +41,12 @@ async def patch_config(req: ConfigPatch, request: Request):
             "UPDATE system_config SET value = $1, updated_at = NOW() WHERE key = $2",
             str(req.value), req.key,
         )
+    token = request.headers.get("Authorization", "").split(" ", 1)[-1]
+    user = decode_token(token)
+    await log_event(
+        pool, "config_change",
+        username=user["username"] if user else None,
+        ip=request.client.host if request.client else None,
+        detail={"key": req.key, "value": req.value},
+    )
     return {"ok": True, "key": req.key, "value": req.value}

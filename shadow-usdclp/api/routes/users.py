@@ -16,6 +16,7 @@ from auth import (
     verify_password,
     verify_totp,
 )
+from audit import log_event
 
 router = APIRouter(prefix="/api/v1/users")
 
@@ -35,6 +36,10 @@ def _require_admin(request: Request) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin required")
     return user
+
+
+def _client_ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
 
 
 # --- Pydantic models ---
@@ -84,6 +89,7 @@ async def change_password(body: ChangePasswordRequest, request: Request):
             hash_password(body.new_password),
             current["username"],
         )
+    await log_event(pool, "password_change", username=current["username"], ip=_client_ip(request))
     return {"success": True}
 
 
@@ -102,6 +108,7 @@ async def otp_setup(request: Request):
             secret,
             current["username"],
         )
+    await log_event(pool, "otp_setup", username=current["username"], ip=_client_ip(request))
     return {"secret": secret, "uri": uri}
 
 
@@ -129,6 +136,7 @@ async def otp_enable(body: OtpVerifyRequest, request: Request):
             """,
             current["username"],
         )
+    await log_event(pool, "otp_enable", username=current["username"], ip=_client_ip(request))
     return {"success": True}
 
 
@@ -150,6 +158,7 @@ async def otp_disable(body: OtpVerifyRequest, request: Request):
             "UPDATE users SET otp_enabled = FALSE, otp_secret = NULL WHERE username = $1",
             current["username"],
         )
+    await log_event(pool, "otp_disable", username=current["username"], ip=_client_ip(request))
     return {"success": True}
 
 
@@ -182,6 +191,13 @@ async def create_user(body: CreateUserRequest, request: Request):
             hash_password(body.password),
             body.role,
         )
+    current = _current_user(request)
+    await log_event(
+        pool, "user_create",
+        username=current["username"],
+        ip=_client_ip(request),
+        detail={"target": body.username, "role": body.role},
+    )
     return {"username": body.username, "role": body.role}
 
 
@@ -195,4 +211,10 @@ async def delete_user(username: str, request: Request):
         result = await conn.execute("DELETE FROM users WHERE username = $1", username)
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="User not found")
+    await log_event(
+        pool, "user_delete",
+        username=current["username"],
+        ip=_client_ip(request),
+        detail={"target": username},
+    )
     return {"success": True}

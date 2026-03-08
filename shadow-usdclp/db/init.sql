@@ -120,6 +120,20 @@ INSERT INTO system_config (key, value) VALUES
     ('collector_yfinance_interval', '300'),
     ('calculator_interval',         '30');
 
+-- Audit log: tracks all user actions
+CREATE TABLE audit_log (
+    id          BIGSERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    username    TEXT,
+    action      TEXT NOT NULL,
+    detail      JSONB,
+    ip          TEXT
+);
+
+CREATE INDEX idx_audit_log_ts ON audit_log (ts DESC);
+CREATE INDEX idx_audit_log_username ON audit_log (username, ts DESC);
+CREATE INDEX idx_audit_log_action ON audit_log (action, ts DESC);
+
 -- Chilean holidays table
 CREATE TABLE cl_holidays (
     date    DATE PRIMARY KEY,

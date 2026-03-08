@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from auth import create_access_token, verify_password, verify_totp
+from audit import log_event
 
 router = APIRouter()
 
@@ -70,8 +71,11 @@ async def login(body: LoginRequest, request: Request):
             body.username,
         )
 
+    ip = request.client.host if request.client else None
+
     if not user or not verify_password(body.password, user["password_hash"]):
         _record_failure(key)
+        await log_event(pool, "login_failed", username=body.username, ip=ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -83,11 +87,13 @@ async def login(body: LoginRequest, request: Request):
             return {"requires_otp": True}
         if not verify_totp(user["otp_secret"], body.otp_code):
             _record_failure(key)
+            await log_event(pool, "login_failed_otp", username=body.username, ip=ip)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid OTP code",
             )
 
     _clear_failures(key)
+    await log_event(pool, "login", username=body.username, ip=ip)
     token = create_access_token(body.username, user["role"])
     return {"access_token": token, "token_type": "bearer"}

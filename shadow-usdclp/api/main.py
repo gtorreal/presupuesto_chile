@@ -13,7 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from auth import decode_token, seed_users_if_empty
-from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes
+from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes, price_ticks, audit_logs
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -73,6 +73,8 @@ app.include_router(shadow.router, prefix="/api/v1")
 app.include_router(correlations.router, prefix="/api/v1")
 app.include_router(model.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
+app.include_router(price_ticks.router, prefix="/api/v1")
+app.include_router(audit_logs.router, prefix="/api/v1")
 app.include_router(users_routes.router)
 
 

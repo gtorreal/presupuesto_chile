@@ -48,6 +48,14 @@ export const api = {
   activateModel: (paramId) => post("/api/v1/model/activate", { param_id: paramId }),
   saveParams: (name, params, notes) =>
     post("/api/v1/model/params", { name, params, notes }),
+  getPriceTicksTable: (hours = 24, page = 1, pageSize = 50) =>
+    get(`/api/v1/price-ticks/table?hours=${hours}&page=${page}&page_size=${pageSize}`),
   getConfig: () => get("/api/v1/config"),
   patchConfig: (key, value) => post("/api/v1/config", { key, value }, "PATCH"),
+  getAuditLogs: ({ limit = 100, offset = 0, username, action } = {}) => {
+    const params = new URLSearchParams({ limit, offset });
+    if (username) params.set("username", username);
+    if (action) params.set("action", action);
+    return get(`/api/v1/audit-logs?${params}`);
+  },
 };
