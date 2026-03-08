@@ -59,7 +59,8 @@ async def get_shadow_history(request: Request, hours: int = Query(default=24, ge
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT time, shadow_price, confidence_low, confidence_high, bec_last_close
+            SELECT time, shadow_price, confidence_low, confidence_high,
+                   bec_last_close, factor_deltas, model_version
             FROM shadow_usdclp
             WHERE time > NOW() - ($1 || ' hours')::INTERVAL
             ORDER BY time ASC
@@ -74,6 +75,8 @@ async def get_shadow_history(request: Request, hours: int = Query(default=24, ge
             "confidence_low": r["confidence_low"],
             "confidence_high": r["confidence_high"],
             "bec_last_close": r["bec_last_close"],
+            "factor_deltas": _json(r["factor_deltas"]),
+            "model_version": r["model_version"],
         }
         for r in rows
     ]
