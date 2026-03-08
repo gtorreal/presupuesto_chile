@@ -1,0 +1,226 @@
+"""
+Shadow USDCLP - Data Collector Daemon
+
+Two polling loops:
+  - Fast (POLL_INTERVAL_SECONDS, default 30s):
+      Buda.com, mindicador.cl, CMF, Frankfurter (forex ECB), NDF stub, BEC stub
+  - Slow (YFINANCE_POLL_INTERVAL_SECONDS, default 300s):
+      Yahoo Finance — USDBRL, USDMXN, USDCOP, DXY, VIX, Copper, US10Y, ECH
+      (Yahoo data takes priority over Frankfurter when available)
+
+Health endpoint: http://0.0.0.0:8001/health
+"""
+
+import asyncio
+import json
+import logging
+import os
+import signal
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from threading import Thread
+
+import asyncpg
+
+import config
+from sources.base import PriceTick
+from sources.buda import BudaSource
+from sources.mindicador import MindicadorSource
+from sources.cmf import CmfSource
+from sources.frankfurter import FrankfurterSource
+from sources.yfinance_source import YFinanceSource
+from sources.ndf_stub import NdfDataSource
+from sources.bec_stub import BecDataSource
+
+# Massive and TwelveData kept as stubs — enable when API keys are configured
+# from sources.massive import MassiveSource
+# from sources.twelvedata import TwelveDataSource
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logger = logging.getLogger("collector")
+
+YFINANCE_POLL_INTERVAL = int(os.getenv("YFINANCE_POLL_INTERVAL_SECONDS", "300"))
+
+FAST_SOURCES = [
+    BudaSource(),
+    MindicadorSource(),
+    CmfSource(),
+    FrankfurterSource(),   # ECB forex: USDBRL, USDMXN, USDCOP, DXY proxy. Free, official.
+    NdfDataSource(),
+    BecDataSource(),
+]
+
+SLOW_SOURCES = [
+    YFinanceSource(),
+]
+
+ALL_SOURCES = FAST_SOURCES + SLOW_SOURCES
+
+# State for health endpoint
+_last_fast_fetch: datetime | None = None
+_last_slow_fetch: datetime | None = None
+_last_tick_count: int = 0
+
+
+async def save_ticks(pool: asyncpg.Pool, ticks: list[PriceTick]) -> None:
+    if not ticks:
+        return
+
+    rows = [
+        (t.time, t.source, t.symbol, t.bid, t.ask, t.mid, t.volume, json.dumps(t.raw_json))
+        for t in ticks
+    ]
+
+    async with pool.acquire() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO price_ticks (time, source, symbol, bid, ask, mid, volume, raw_json)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+            """,
+            rows,
+        )
+
+
+async def run_sources(pool: asyncpg.Pool, sources: list) -> int:
+    """Fetch from a list of sources concurrently, save to DB. Returns tick count."""
+    enabled = [s for s in sources if s.is_enabled]
+    if not enabled:
+        return 0
+
+    results = await asyncio.gather(*[s.fetch() for s in enabled], return_exceptions=True)
+
+    all_ticks: list[PriceTick] = []
+    for src, result in zip(enabled, results):
+        if isinstance(result, Exception):
+            logger.error("Source %s raised exception: %s", src.name, result)
+        else:
+            all_ticks.extend(result)
+
+    if all_ticks:
+        await save_ticks(pool, all_ticks)
+
+    return len(all_ticks)
+
+
+async def get_config_interval(pool: asyncpg.Pool, key: str, default: int) -> int:
+    """Read an interval from system_config, falling back to the default."""
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT value FROM system_config WHERE key = $1", key)
+        return int(row["value"]) if row else default
+    except Exception:
+        return default
+
+
+async def fast_loop(pool: asyncpg.Pool) -> None:
+    global _last_fast_fetch, _last_tick_count
+
+    while True:
+        start = datetime.now(timezone.utc)
+        interval = await get_config_interval(pool, "collector_fast_interval", config.POLL_INTERVAL_SECONDS)
+        try:
+            count = await run_sources(pool, FAST_SOURCES)
+            _last_tick_count = count
+            _last_fast_fetch = datetime.now(timezone.utc)
+            if count:
+                logger.info("Fast sources: saved %d ticks", count)
+        except Exception as e:
+            logger.error("Fast loop DB error: %s", e)
+
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        await asyncio.sleep(max(0, interval - elapsed))
+
+
+async def slow_loop(pool: asyncpg.Pool) -> None:
+    global _last_slow_fetch
+
+    while True:
+        start = datetime.now(timezone.utc)
+        interval = await get_config_interval(pool, "collector_yfinance_interval", YFINANCE_POLL_INTERVAL)
+        try:
+            count = await run_sources(pool, SLOW_SOURCES)
+            _last_slow_fetch = datetime.now(timezone.utc)
+            if count:
+                logger.info("Slow sources (yfinance): saved %d ticks", count)
+        except Exception as e:
+            logger.error("Slow loop DB error: %s", e)
+
+        elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        await asyncio.sleep(max(0, interval - elapsed))
+
+
+# ── Health endpoint ────────────────────────────────────────────────────────────
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body = json.dumps({
+                "status": "ok",
+                "last_fast_fetch": _last_fast_fetch.isoformat() if _last_fast_fetch else None,
+                "last_slow_fetch": _last_slow_fetch.isoformat() if _last_slow_fetch else None,
+                "last_tick_count": _last_tick_count,
+                "sources": [
+                    {"name": s.name, "enabled": s.is_enabled, "loop": "fast"}
+                    for s in FAST_SOURCES
+                ] + [
+                    {"name": s.name, "enabled": s.is_enabled, "loop": "slow"}
+                    for s in SLOW_SOURCES
+                ],
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def start_health_server():
+    server = HTTPServer(("0.0.0.0", 8001), HealthHandler)
+    Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Health endpoint: http://0.0.0.0:8001/health")
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+
+async def main():
+    logger.info(
+        "Starting collector — fast=%ds, yfinance=%ds",
+        config.POLL_INTERVAL_SECONDS,
+        YFINANCE_POLL_INTERVAL,
+    )
+    logger.info("Fast sources: %s", [s.name for s in FAST_SOURCES if s.is_enabled])
+    logger.info("Slow sources: %s", [s.name for s in SLOW_SOURCES if s.is_enabled])
+
+    pool = await asyncpg.create_pool(config.DATABASE_URL, min_size=2, max_size=5)
+
+    start_health_server()
+
+    loop = asyncio.get_running_loop()
+    stop_event = asyncio.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop_event.set)
+
+    tasks = [
+        asyncio.create_task(fast_loop(pool)),
+        asyncio.create_task(slow_loop(pool)),
+    ]
+
+    await stop_event.wait()
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    await pool.close()
+    logger.info("Collector stopped")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

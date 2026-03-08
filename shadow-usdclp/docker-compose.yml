@@ -1,0 +1,83 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shadow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shadow}
+      POSTGRES_DB: ${POSTGRES_DB:-shadow_usdclp}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shadow} -d ${POSTGRES_DB:-shadow_usdclp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  collector:
+    build: ./collector
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://shadow:shadow@db:5432/shadow_usdclp}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-30}
+      YFINANCE_POLL_INTERVAL_SECONDS: ${YFINANCE_POLL_INTERVAL_SECONDS:-300}
+      CMF_API_KEY: ${CMF_API_KEY:-}
+      BUDA_API_KEY: ${BUDA_API_KEY:-}
+      BUDA_API_SECRET: ${BUDA_API_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  calculator:
+    build: ./calculator
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://shadow:shadow@db:5432/shadow_usdclp}
+      SHADOW_CALC_INTERVAL_SECONDS: ${SHADOW_CALC_INTERVAL_SECONDS:-30}
+      CONFIDENCE_K: ${CONFIDENCE_K:-2.0}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://shadow:shadow@db:5432/shadow_usdclp}
+      JWT_SECRET: ${JWT_SECRET:-insecure-default-change-in-production}
+      JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-8}
+      AUTH_USERS: ${AUTH_USERS:-admin:shadow}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  db_data:
