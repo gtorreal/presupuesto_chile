@@ -202,6 +202,17 @@ async def main():
 
     pool = await asyncpg.create_pool(config.DATABASE_URL, min_size=2, max_size=5)
 
+    # Skip yfinance historical re-seed if data already exists in the DB.
+    # _seeded is in-memory and resets on every restart; this check makes it persistent.
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT 1 FROM price_ticks WHERE source = 'yfinance_hist'"
+            " AND time > NOW() - INTERVAL '6 days' LIMIT 1"
+        )
+    if row:
+        YFinanceSource._seeded = True
+        logger.info("yfinance historical data already in DB — skipping re-seed on startup")
+
     start_health_server()
 
     loop = asyncio.get_running_loop()

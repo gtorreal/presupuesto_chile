@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import signal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
 
@@ -111,9 +111,8 @@ async def correlation_loop(pool: asyncpg.Pool) -> None:
     while True:
         now = datetime.now(timezone.utc)
         # Calculate seconds until next midnight UTC
-        tomorrow_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        if tomorrow_midnight <= now:
-            tomorrow_midnight = tomorrow_midnight.replace(day=tomorrow_midnight.day + 1)
+        today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_midnight = today_midnight + timedelta(days=1)
         sleep_seconds = (tomorrow_midnight - now).total_seconds()
 
         logger.info("Correlation engine will run in %.1fh", sleep_seconds / 3600)

@@ -77,6 +77,49 @@ CREATE TABLE correlation_snapshots (
 SELECT create_hypertable('correlation_snapshots', 'time');
 CREATE INDEX ON correlation_snapshots (window_days, pair_a, pair_b, time DESC);
 
+-- Compression and retention policies
+ALTER TABLE price_ticks SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'source, symbol',
+    timescaledb.compress_orderby   = 'time DESC'
+);
+SELECT add_compression_policy('price_ticks', INTERVAL '7 days');
+SELECT add_retention_policy('price_ticks',   INTERVAL '90 days');
+
+ALTER TABLE shadow_usdclp SET (
+    timescaledb.compress,
+    timescaledb.compress_orderby = 'time DESC'
+);
+SELECT add_compression_policy('shadow_usdclp', INTERVAL '1 day');
+SELECT add_retention_policy('shadow_usdclp',   INTERVAL '365 days');
+
+SELECT add_retention_policy('correlation_snapshots', INTERVAL '365 days');
+
+-- Users table (DB-backed auth, replaces AUTH_USERS env var)
+CREATE TABLE users (
+    id                  SERIAL PRIMARY KEY,
+    username            TEXT UNIQUE NOT NULL,
+    password_hash       TEXT NOT NULL,
+    role                TEXT NOT NULL DEFAULT 'admin',
+    otp_enabled         BOOLEAN DEFAULT FALSE,
+    otp_secret          TEXT,             -- active TOTP secret
+    otp_pending_secret  TEXT,             -- temp secret during OTP setup
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    is_active           BOOLEAN DEFAULT TRUE
+);
+
+-- Runtime configuration (editable from the UI)
+CREATE TABLE system_config (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO system_config (key, value) VALUES
+    ('collector_fast_interval',     '30'),
+    ('collector_yfinance_interval', '300'),
+    ('calculator_interval',         '30');
+
 -- Chilean holidays table
 CREATE TABLE cl_holidays (
     date    DATE PRIMARY KEY,
