@@ -211,7 +211,10 @@ export default function LogsPanel() {
                         {ACTION_LABELS[log.action] || log.action}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-400 max-w-xs truncate">
+                    <td
+                      className="px-4 py-2.5 text-xs text-gray-400 max-w-xs truncate"
+                      title={formatDetail(log.action, log.detail) || ""}
+                    >
                       {formatDetail(log.action, log.detail)}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-gray-600 font-mono">
