@@ -13,7 +13,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from auth import decode_token, seed_users_if_empty
-from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes, price_ticks, audit_logs
+from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes, price_ticks, audit_logs, api_keys, public
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -25,12 +25,18 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",")]
 pool: asyncpg.Pool | None = None
 
 # Paths that don't require a valid JWT
-_PUBLIC_PATHS = {"/health", "/auth/login"}
+_PUBLIC_PATHS = {"/health", "/auth/login", "/docs", "/openapi.json", "/redoc"}
+# Path prefixes that use their own auth (API key)
+_APIKEY_PREFIXES = ("/api/v1/public/",)
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path in _PUBLIC_PATHS:
+            return await call_next(request)
+
+        # API-key-authenticated routes handle their own auth
+        if any(request.url.path.startswith(p) for p in _APIKEY_PREFIXES):
             return await call_next(request)
 
         header = request.headers.get("Authorization", "")
@@ -75,6 +81,8 @@ app.include_router(model.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(price_ticks.router, prefix="/api/v1")
 app.include_router(audit_logs.router, prefix="/api/v1")
+app.include_router(api_keys.router)
+app.include_router(public.router)
 app.include_router(users_routes.router)
 
 

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, Request
 
 
-def _json(v):
+def parse_jsonb(v):
     """Safely convert asyncpg JSONB value (may be str or dict) to dict."""
     if v is None:
         return {}
@@ -44,8 +44,8 @@ async def get_shadow_price(request: Request):
         "bec_last_close": row["bec_last_close"],
         "bec_close_age_hours": round(bec_age_hours, 2) if bec_age_hours is not None else None,
         "bec_close_time": row["bec_close_time"].isoformat() if row["bec_close_time"] else None,
-        "factors": _json(row["factors_used"]),
-        "factor_deltas": _json(row["factor_deltas"]),
+        "factors": parse_jsonb(row["factors_used"]),
+        "factor_deltas": parse_jsonb(row["factor_deltas"]),
         "model_version": row["model_version"],
         "timestamp": row["time"].isoformat(),
     }
@@ -75,7 +75,7 @@ async def get_shadow_history(request: Request, hours: int = Query(default=24, ge
             "confidence_low": r["confidence_low"],
             "confidence_high": r["confidence_high"],
             "bec_last_close": r["bec_last_close"],
-            "factor_deltas": _json(r["factor_deltas"]),
+            "factor_deltas": parse_jsonb(r["factor_deltas"]),
             "model_version": r["model_version"],
         }
         for r in rows

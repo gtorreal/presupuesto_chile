@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
-const API = (path) => `/api/v1/users${path}`;
-
 function authHeaders() {
   const token = localStorage.getItem("shadow_token");
   return { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
 }
 
-async function apiFetch(path, opts = {}) {
-  const res = await fetch(API(path), { headers: authHeaders(), ...opts });
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(url, { headers: authHeaders(), ...opts });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `HTTP ${res.status}`);
@@ -32,7 +30,7 @@ function OtpSection({ currentUser }) {
     setMsg(null);
     setLoading(true);
     try {
-      const data = await apiFetch("/me/otp-setup", { method: "POST" });
+      const data = await apiFetch("/api/v1/users/me/otp-setup", { method: "POST" });
       setSetupData(data);
       setCode("");
     } catch (e) {
@@ -47,7 +45,7 @@ function OtpSection({ currentUser }) {
     setLoading(true);
     setMsg(null);
     try {
-      await apiFetch("/me/otp-enable", {
+      await apiFetch("/api/v1/users/me/otp-enable", {
         method: "POST",
         body: JSON.stringify({ code }),
       });
@@ -67,7 +65,7 @@ function OtpSection({ currentUser }) {
     setLoading(true);
     setMsg(null);
     try {
-      await apiFetch("/me/otp-disable", {
+      await apiFetch("/api/v1/users/me/otp-disable", {
         method: "POST",
         body: JSON.stringify({ code }),
       });
@@ -217,7 +215,7 @@ function ChangePasswordSection() {
     setLoading(true);
     setMsg(null);
     try {
-      await apiFetch("/me/change-password", {
+      await apiFetch("/api/v1/users/me/change-password", {
         method: "POST",
         body: JSON.stringify({ current_password: current, new_password: next }),
       });
@@ -284,7 +282,7 @@ function UserManagementSection() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiFetch("");
+      const data = await apiFetch("/api/v1/users");
       setUsers(data);
     } catch (e) {
       setMsg({ type: "err", text: e.message });
@@ -300,7 +298,7 @@ function UserManagementSection() {
     setCreating(true);
     setMsg(null);
     try {
-      await apiFetch("", {
+      await apiFetch("/api/v1/users", {
         method: "POST",
         body: JSON.stringify({ username: newUsername, password: newPassword, role: "admin" }),
       });
@@ -318,7 +316,7 @@ function UserManagementSection() {
     if (!window.confirm(`¿Eliminar al usuario "${username}"?`)) return;
     setMsg(null);
     try {
-      await apiFetch(`/${username}`, { method: "DELETE" });
+      await apiFetch(`/api/v1/users/${username}`, { method: "DELETE" });
       setMsg({ type: "ok", text: `Usuario "${username}" eliminado.` });
       await load();
     } catch (e) {
@@ -437,10 +435,226 @@ function UserManagementSection() {
 }
 
 // ---------------------------------------------------------------------------
+// API Keys Section
+// ---------------------------------------------------------------------------
+
+function ApiKeysSection({ onShowDocs }) {
+  const [keys, setKeys] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [label, setLabel] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [newKey, setNewKey] = useState(null); // full key shown once after creation
+  const [copied, setCopied] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch("/api/v1/api-keys");
+      setKeys(data);
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function createKey(e) {
+    e.preventDefault();
+    setCreating(true);
+    setMsg(null);
+    try {
+      const data = await apiFetch("/api/v1/api-keys", {
+        method: "POST",
+        body: JSON.stringify({ label: label || "default" }),
+      });
+      setNewKey(data.key);
+      setLabel("");
+      setShowForm(false);
+      setCopied(false);
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function revokeKey(id, prefix) {
+    if (!window.confirm(`¿Revocar la key ${prefix}?`)) return;
+    setMsg(null);
+    try {
+      await apiFetch(`/api/v1/api-keys/${id}`, { method: "DELETE" });
+      setMsg({ type: "ok", text: "Key revocada." });
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    }
+  }
+
+  function copyKey() {
+    navigator.clipboard.writeText(newKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-200">API Keys</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Keys para acceder a la API pública de precios.
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowForm((v) => !v); setMsg(null); setNewKey(null); }}
+          className="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          {showForm ? "Cancelar" : "+ Nueva key"}
+        </button>
+      </div>
+
+      {msg && (
+        <p className={`text-xs rounded-lg px-3 py-2 mb-3 ${msg.type === "ok" ? "bg-emerald-950 border border-emerald-900 text-emerald-400" : "bg-red-950 border border-red-900 text-red-400"}`}>
+          {msg.text}
+        </p>
+      )}
+
+      {/* Show newly created key */}
+      {newKey && (
+        <div className="mb-4 p-4 bg-amber-950/50 border border-amber-900 rounded-lg space-y-2">
+          <p className="text-xs text-amber-400 font-semibold">
+            Key creada — copia este valor ahora, no se puede volver a ver:
+          </p>
+          <div className="flex gap-2 items-center">
+            <code className="flex-1 text-xs text-amber-300 bg-gray-900 px-3 py-2 rounded block break-all font-mono">
+              {newKey}
+            </code>
+            <button
+              onClick={copyKey}
+              className="text-xs bg-amber-500 hover:bg-amber-400 text-gray-900 font-semibold px-3 py-2 rounded-lg transition-colors whitespace-nowrap"
+            >
+              {copied ? "Copiada" : "Copiar"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showForm && (
+        <form onSubmit={createKey} className="mb-4 p-4 bg-gray-800 rounded-lg space-y-3 border border-gray-700">
+          <h4 className="text-xs font-semibold text-gray-400">Nueva API Key</h4>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Etiqueta (opcional)</label>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="ej: mi-app, producción, test"
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-amber-500 transition-colors"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={creating}
+            className="text-sm bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-900 font-semibold px-4 py-1.5 rounded-lg transition-colors"
+          >
+            {creating ? "Creando..." : "Crear key"}
+          </button>
+        </form>
+      )}
+
+      {loading ? (
+        <p className="text-xs text-gray-500 py-4 text-center">Cargando...</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800">
+                {["Key", "Etiqueta", "Creada", "Último uso", "Estado", ""].map((h) => (
+                  <th key={h} className="text-left text-xs text-gray-500 font-medium pb-2 pr-4 last:pr-0">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id} className="border-b border-gray-800/50 last:border-0">
+                  <td className="py-2.5 pr-4">
+                    <code className="text-xs text-gray-400 font-mono">{k.key_prefix}</code>
+                  </td>
+                  <td className="py-2.5 pr-4 text-xs text-gray-300">{k.label}</td>
+                  <td className="py-2.5 pr-4 text-xs text-gray-500">
+                    {new Date(k.created_at).toLocaleDateString("es-CL")}
+                  </td>
+                  <td className="py-2.5 pr-4 text-xs text-gray-500">
+                    {k.last_used_at ? new Date(k.last_used_at).toLocaleString("es-CL") : "—"}
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      k.is_active
+                        ? "bg-emerald-950 text-emerald-400 border border-emerald-900"
+                        : "bg-gray-800 text-gray-600 border border-gray-700"
+                    }`}>
+                      {k.is_active ? "Activa" : "Revocada"}
+                    </span>
+                  </td>
+                  <td className="py-2.5 text-right">
+                    {k.is_active && (
+                      <button
+                        onClick={() => revokeKey(k.id, k.key_prefix)}
+                        className="text-xs text-gray-600 hover:text-red-400 transition-colors"
+                      >
+                        Revocar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {keys.length === 0 && (
+            <p className="text-xs text-gray-600 py-4 text-center">No hay API keys.</p>
+          )}
+        </div>
+      )}
+
+      {/* Usage docs */}
+      <div className="mt-4 p-4 bg-gray-800/50 rounded-lg border border-gray-800">
+        <h4 className="text-xs font-semibold text-gray-400 mb-2">Uso de la API</h4>
+        <div className="space-y-2 text-xs text-gray-500">
+          <p>Endpoints disponibles:</p>
+          <div className="space-y-1 font-mono text-gray-400">
+            <p><span className="text-emerald-500">GET</span> /api/v1/public/prices/current</p>
+            <p><span className="text-emerald-500">GET</span> /api/v1/public/prices/history?hours=24</p>
+          </div>
+          <p className="mt-2">Ejemplo con curl:</p>
+          <code className="block bg-gray-900 px-3 py-2 rounded text-gray-400 break-all">
+            curl -H "X-API-Key: tu-key-aquí" {window.location.origin}/api/v1/public/prices/current
+          </code>
+          <p className="mt-2">
+            <button
+              onClick={onShowDocs}
+              className="text-amber-500 hover:text-amber-400 underline transition-colors text-left"
+            >
+              Ver documentación completa de la API
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Settings Panel
 // ---------------------------------------------------------------------------
 
-export default function SettingsPanel({ currentUser }) {
+export default function SettingsPanel({ currentUser, onShowDocs }) {
   return (
     <div className="space-y-8">
       {/* Mi cuenta */}
@@ -450,6 +664,14 @@ export default function SettingsPanel({ currentUser }) {
           <OtpSection currentUser={currentUser} />
           <ChangePasswordSection />
         </div>
+      </section>
+
+      {/* API Keys */}
+      <section>
+        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          API Keys
+        </h2>
+        <ApiKeysSection onShowDocs={onShowDocs} />
       </section>
 
       {/* Cuentas y permisos — admin only */}
