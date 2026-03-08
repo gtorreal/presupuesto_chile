@@ -107,13 +107,19 @@ async def get_price_at_bec_close(pool: asyncpg.Pool, symbol: str, bec_close_time
         if row:
             return float(row["mid"])
 
-        # Fallback: use oldest available data point (delta will be small / near zero,
-        # but better than skipping the factor entirely)
+        # Fallback: use oldest available data point, but only if it's reasonably
+        # close to the BEC close time (within 6 hours). If the oldest tick is from
+        # today and the BEC close was last Friday, using it would give a near-zero
+        # delta that hides real market moves.
         row = await conn.fetchrow(
-            "SELECT mid FROM price_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1",
+            "SELECT mid, time FROM price_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1",
             symbol,
         )
-    return float(row["mid"]) if row else None
+        if row:
+            age_hours = abs((row["time"] - bec_close_time).total_seconds()) / 3600
+            if age_hours <= 6:
+                return float(row["mid"])
+    return None
 
 
 async def get_bec_last_close(pool: asyncpg.Pool) -> tuple[float, datetime]:
@@ -180,13 +186,15 @@ async def get_model_error_stddev(pool: asyncpg.Pool) -> float:
             """
         )
 
+    MIN_SIGMA = 3.0  # floor: at least ±3 CLP uncertainty regardless of model accuracy
+
     if len(rows) < 5:
-        return 3.0  # default: ±3 CLP base spread
+        return MIN_SIGMA
 
     errors = [float(r["shadow_price"]) - float(r["real_price"]) for r in rows]
     mean = sum(errors) / len(errors)
-    variance = sum((e - mean) ** 2 for e in errors) / len(errors)
-    return math.sqrt(variance)
+    variance = sum((e - mean) ** 2 for e in errors) / (len(errors) - 1)
+    return max(math.sqrt(variance), MIN_SIGMA)
 
 
 async def calculate_shadow(pool: asyncpg.Pool, confidence_k: float = 2.0, sigma: Optional[float] = None) -> Optional[ShadowResult]:

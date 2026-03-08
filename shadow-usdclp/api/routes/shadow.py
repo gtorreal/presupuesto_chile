@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 
 def _json(v):
@@ -52,7 +52,7 @@ async def get_shadow_price(request: Request):
 
 
 @router.get("/shadow-price/history")
-async def get_shadow_history(request: Request, hours: int = 24):
+async def get_shadow_history(request: Request, hours: int = Query(default=24, ge=1, le=8760)):
     """Historical shadow prices for charting."""
     pool = request.app.state.pool
 
