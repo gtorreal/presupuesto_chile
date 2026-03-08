@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { api } from "../api/client";
+import PriceTicksTable from "./PriceTicksTable";
 
 const HOUR_OPTIONS = [
   { label: "6h", value: 6 },
@@ -311,7 +312,10 @@ export default function HistoricalChart() {
         )}
       </div>
 
-      {/* Tabla */}
+      {/* Tabla de precios por activo */}
+      <PriceTicksTable hours={hours} />
+
+      {/* Tabla de datos shadow */}
       {rawData.length > 0 && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
           <div className="flex items-center justify-between mb-4">
