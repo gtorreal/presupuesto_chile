@@ -64,8 +64,13 @@ function formatDetail(action, detail) {
       return `"${detail.name}" → ID #${detail.param_id}`;
     case "config_change":
       return `${detail.key} = ${detail.value}s`;
-    case "code_commit":
-      return `${detail.commit} — ${detail.message} (${detail.files_changed} archivos)`;
+    case "code_commit": {
+      const stats = detail.insertions != null
+        ? ` +${detail.insertions} −${detail.deletions}`
+        : "";
+      const coAuth = detail.co_author ? ` [${detail.co_author.split("<")[0].trim()}]` : "";
+      return `${detail.commit} — ${detail.message} (${detail.files_changed} archivos${stats})${coAuth}`;
+    }
     default:
       return JSON.stringify(detail);
   }

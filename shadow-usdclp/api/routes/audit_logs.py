@@ -76,7 +76,7 @@ async def get_audit_logs(
                 "ts": r["ts"].isoformat(),
                 "username": r["username"],
                 "action": r["action"],
-                "detail": dict(r["detail"]) if r["detail"] else None,
+                "detail": r["detail"] if r["detail"] else None,
                 "ip": r["ip"],
             }
             for r in rows
