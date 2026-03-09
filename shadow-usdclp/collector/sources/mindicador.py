@@ -39,6 +39,10 @@ class MindicadorSource(DataSource):
             try:
                 parsed = datetime.fromisoformat(fecha_str.replace("Z", "+00:00"))
                 tick_time = parsed.replace(hour=19, minute=30, second=0, microsecond=0)
+                # Never store a future timestamp
+                now = datetime.now(timezone.utc)
+                if tick_time > now:
+                    tick_time = now
             except ValueError:
                 tick_time = datetime.now(timezone.utc)
 

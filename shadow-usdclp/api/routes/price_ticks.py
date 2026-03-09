@@ -73,6 +73,7 @@ async def get_price_ticks_table(
             SELECT COUNT(DISTINCT time_bucket('{bucket}'::INTERVAL, time))
             FROM price_ticks
             WHERE time > NOW() - ($1 || ' hours')::INTERVAL
+              AND time <= NOW()
             """,
             str(hours),
         )
@@ -86,6 +87,7 @@ async def get_price_ticks_table(
                     {pivot_cols}
                 FROM price_ticks
                 WHERE time > NOW() - ($1 || ' hours')::INTERVAL
+                  AND time <= NOW()
                 GROUP BY bucket
             ),
             shadow AS (
@@ -94,6 +96,7 @@ async def get_price_ticks_table(
                     (array_agg(shadow_price ORDER BY time DESC))[1] AS shadow_price
                 FROM shadow_usdclp
                 WHERE time > NOW() - ($1 || ' hours')::INTERVAL
+                  AND time <= NOW()
                 GROUP BY bucket
             )
             SELECT
