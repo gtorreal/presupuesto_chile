@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import {
   ComposedChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -115,6 +116,8 @@ export default function HistoricalChart() {
           shadow: r.shadow_price,
           low:    r.confidence_low,
           high:   r.confidence_high,
+          bandWidth: (r.confidence_high != null && r.confidence_low != null)
+            ? r.confidence_high - r.confidence_low : null,
           bec:    r.bec_last_close,
         };
         for (const [betaKey, chartKey] of Object.entries(DELTA_KEY_MAP)) {
@@ -124,6 +127,18 @@ export default function HistoricalChart() {
       }),
     [rawData, hours]
   );
+
+  // Dominio del eje Y calculado desde los datos reales (evita que stacked areas lo distorsionen)
+  const priceDomain = useMemo(() => {
+    const prices = chartData.flatMap((d) =>
+      [d.shadow, d.low, d.high, d.bec].filter((v) => v != null)
+    );
+    if (!prices.length) return [undefined, undefined];
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const pad = Math.max(1, (max - min) * 0.1);
+    return [Math.floor(min - pad), Math.ceil(max + pad)];
+  }, [chartData]);
 
   const hasDeltaSeries = DELTA_SERIES.some((s) => visible[s.key]);
 
@@ -249,7 +264,8 @@ export default function HistoricalChart() {
               <YAxis
                 yAxisId="price"
                 orientation="left"
-                domain={["auto", "auto"]}
+                domain={priceDomain}
+                allowDataOverflow
                 tick={{ fill: "#6b7280", fontSize: 11 }}
                 tickFormatter={(v) => v.toFixed(0)}
               />
@@ -276,6 +292,39 @@ export default function HistoricalChart() {
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
+
+              {/* Banda de confianza rellena (stacked: low invisible + bandWidth visible) */}
+              {visible.high && visible.low && (
+                <>
+                  <Area
+                    yAxisId="price"
+                    stackId="confidence"
+                    type="monotone"
+                    dataKey="low"
+                    stroke="none"
+                    fill="transparent"
+                    activeDot={false}
+                    legendType="none"
+                    tooltipType="none"
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="price"
+                    stackId="confidence"
+                    type="monotone"
+                    dataKey="bandWidth"
+                    stroke="none"
+                    fill="#f59e0b"
+                    fillOpacity={0.25}
+                    activeDot={false}
+                    legendType="none"
+                    tooltipType="none"
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                </>
+              )}
 
               {/* Series de precio */}
               {PRICE_SERIES.filter((s) => visible[s.key]).map((s) => (
