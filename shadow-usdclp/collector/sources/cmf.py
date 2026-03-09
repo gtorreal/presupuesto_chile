@@ -21,6 +21,9 @@ class CmfSource(DataSource):
     def __init__(self, api_key: str = ""):
         self._api_key = api_key
 
+    def update_api_key(self, key: str) -> None:
+        self._api_key = key
+
     @property
     def is_enabled(self) -> bool:
         return bool(self._api_key)

@@ -73,13 +73,13 @@ async def refresh_credentials(pool: asyncpg.Pool) -> None:
     td_key = creds.get(("twelvedata", "api_key"), "")
     for src in SLOW_SOURCES:
         if isinstance(src, TwelveDataSource) and td_key:
-            src._api_key = td_key
+            src.update_api_key(td_key)
 
     # Update CMF
     cmf_key = creds.get(("cmf", "api_key"), "")
     for src in FAST_SOURCES:
         if isinstance(src, CmfSource) and cmf_key:
-            src._api_key = cmf_key
+            src.update_api_key(cmf_key)
 
 # State for health endpoint (shared between asyncio loop and HTTP thread)
 import threading
@@ -149,7 +149,6 @@ async def fast_loop(pool: asyncpg.Pool) -> None:
     while True:
         start = datetime.now(timezone.utc)
         interval = await get_config_interval(pool, "collector_fast_interval", config.POLL_INTERVAL_SECONDS)
-        await refresh_credentials(pool)
         try:
             count = await run_sources(pool, FAST_SOURCES)
             with _health_lock:

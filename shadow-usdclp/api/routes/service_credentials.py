@@ -5,12 +5,16 @@ Credentials are encrypted at rest using Fernet symmetric encryption.
 The plaintext value is never returned to the client — only a masked version.
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import current_user
 from audit import log_event
 import crypto
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/service-credentials", tags=["service-credentials"])
 
@@ -50,7 +54,8 @@ async def list_credentials(request: Request):
         if r["encrypted_value"]:
             try:
                 plaintext = crypto.decrypt(r["encrypted_value"])
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to decrypt %s/%s: %s", r["service_name"], r["credential_key"], e)
                 plaintext = ""
 
         result.append({

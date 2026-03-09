@@ -36,7 +36,8 @@ def _decrypt(ciphertext: str) -> str:
         return ""
     try:
         return _fernet.decrypt(ciphertext.encode()).decode()
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to decrypt credential: %s", e)
         return ""
 
 
