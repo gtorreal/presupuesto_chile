@@ -6,6 +6,7 @@ import HistoricalChart from "./components/HistoricalChart";
 import CorrelationMatrix from "./components/CorrelationMatrix";
 import CalibrationPanel from "./components/CalibrationPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import ApiDocsPanel from "./components/ApiDocsPanel";
 import LogsPanel from "./components/LogsPanel";
 import LoginPage from "./components/LoginPage";
 import BudaLogo from "./components/BudaLogo";
@@ -29,9 +30,12 @@ function parseJwt(token) {
   }
 }
 
+// NOTE: JWT stored in localStorage (not httpOnly cookie). Acceptable risk for
+// internal app with few users behind VPN. XSS would require CSP bypass first.
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem("shadow_token"));
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [showApiDocs, setShowApiDocs] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
 
   // Listen for session expiry triggered by the API client
@@ -111,7 +115,7 @@ export default function App() {
             {TABS.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); setShowApiDocs(false); }}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.id
                     ? "border-amber-500 text-amber-400"
@@ -139,8 +143,11 @@ export default function App() {
         {activeTab === "correlations" && <CorrelationMatrix />}
         {activeTab === "calibration" && <CalibrationPanel />}
         {activeTab === "logs" && <LogsPanel />}
-        {activeTab === "settings" && currentUser && (
-          <SettingsPanel currentUser={currentUser} />
+        {activeTab === "settings" && currentUser && !showApiDocs && (
+          <SettingsPanel currentUser={currentUser} onShowDocs={() => setShowApiDocs(true)} />
+        )}
+        {activeTab === "settings" && showApiDocs && (
+          <ApiDocsPanel onBack={() => setShowApiDocs(false)} />
         )}
       </main>
     </div>
