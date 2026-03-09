@@ -47,7 +47,8 @@ const FACTORS = [
     beta: "0.55",
     direction: "Directo",
     inverted: false,
-    source: "Stub manual (futuro: Bloomberg/Reuters)",
+    primarySource: "Stub manual",
+    fallbackSource: "—",
     schedule: "stub",
     scheduleDesc: "N/A (sin feed activo)",
   },
@@ -57,7 +58,8 @@ const FACTORS = [
     beta: "0.20",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance / Frankfurter (ECB)",
+    primarySource: "Twelve Data",
+    fallbackSource: "Yahoo Finance → Frankfurter",
     schedule: "forex",
     scheduleDesc: "Forex 24h — Dom 22:00–Vie 22:00 UTC",
   },
@@ -67,7 +69,8 @@ const FACTORS = [
     beta: "0.15",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance (DX-Y.NYB)",
+    primarySource: "Yahoo Finance (DX-Y.NYB)",
+    fallbackSource: "Frankfurter (DXY_PROXY)",
     schedule: "us_futures",
     scheduleDesc: "ICE Futures — Dom 22:00–Vie 21:00 UTC",
   },
@@ -77,7 +80,8 @@ const FACTORS = [
     beta: "0.10",
     direction: "Invertido",
     inverted: true,
-    source: "Yahoo Finance (HG=F)",
+    primarySource: "Twelve Data (HG)",
+    fallbackSource: "Yahoo Finance (HG=F)",
     schedule: "us_futures",
     scheduleDesc: "COMEX — Dom 23:00–Vie 22:00 UTC",
   },
@@ -87,7 +91,8 @@ const FACTORS = [
     beta: "0.08",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance / Frankfurter (ECB)",
+    primarySource: "Twelve Data",
+    fallbackSource: "Yahoo Finance → Frankfurter",
     schedule: "forex",
     scheduleDesc: "Forex 24h — Dom 22:00–Vie 22:00 UTC",
   },
@@ -97,7 +102,8 @@ const FACTORS = [
     beta: "0.05",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance (^VIX)",
+    primarySource: "Yahoo Finance (^VIX)",
+    fallbackSource: "Twelve Data (VIXY → VIX_PROXY)",
     schedule: "us_equity",
     scheduleDesc: "CBOE — Lun–Vie 13:30–20:00 UTC",
   },
@@ -107,7 +113,8 @@ const FACTORS = [
     beta: "0.04",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance (^TNX)",
+    primarySource: "Yahoo Finance (^TNX)",
+    fallbackSource: "—",
     schedule: "us_futures",
     scheduleDesc: "CME Futures — Dom 22:00–Vie 21:00 UTC",
   },
@@ -117,7 +124,8 @@ const FACTORS = [
     beta: "0.04",
     direction: "Directo",
     inverted: false,
-    source: "Yahoo Finance / Frankfurter (ECB)",
+    primarySource: "Twelve Data",
+    fallbackSource: "Yahoo Finance → Frankfurter",
     schedule: "forex",
     scheduleDesc: "Forex 24h — Dom 22:00–Vie 22:00 UTC",
   },
@@ -127,7 +135,8 @@ const FACTORS = [
     beta: "0.03",
     direction: "Invertido",
     inverted: true,
-    source: "Yahoo Finance (ECH)",
+    primarySource: "Twelve Data",
+    fallbackSource: "Yahoo Finance",
     schedule: "us_equity",
     scheduleDesc: "NYSE Arca — Lun–Vie 13:30–21:00 UTC",
   },
@@ -156,7 +165,8 @@ export default function AcercaDePanel() {
                 <th className="text-left text-gray-400 font-medium pb-2 pr-4">Dirección</th>
                 <th className="text-left text-gray-400 font-medium pb-2 pr-4">Horario (UTC)</th>
                 <th className="text-left text-gray-400 font-medium pb-2 pr-4">Estado</th>
-                <th className="text-left text-gray-400 font-medium pb-2">Fuente</th>
+                <th className="text-left text-gray-400 font-medium pb-2 pr-4">Fuente 1ª</th>
+                <th className="text-left text-gray-400 font-medium pb-2">Fallback</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
@@ -170,7 +180,8 @@ export default function AcercaDePanel() {
                   </td>
                   <td className="py-2.5 pr-4 text-gray-500 text-xs">{f.scheduleDesc}</td>
                   <td className="py-2.5 pr-4"><MarketStatus schedule={f.schedule} /></td>
-                  <td className="py-2.5 text-gray-400">{f.source}</td>
+                  <td className="py-2.5 pr-4 text-gray-400 text-xs">{f.primarySource}</td>
+                  <td className="py-2.5 text-gray-500 text-xs">{f.fallbackSource}</td>
                 </tr>
               ))}
             </tbody>
@@ -178,7 +189,7 @@ export default function AcercaDePanel() {
               <tr className="border-t border-gray-700">
                 <td colSpan={2} className="pt-2.5 text-gray-400 text-xs">Total pesos</td>
                 <td className="pt-2.5 text-right font-mono text-amber-300 font-semibold">1.24</td>
-                <td colSpan={4} className="pt-2.5 text-gray-500 text-xs">
+                <td colSpan={5} className="pt-2.5 text-gray-500 text-xs">
                   (los betas no suman 1 por diseño; el modelo los renormaliza si faltan factores)
                 </td>
               </tr>
@@ -188,10 +199,20 @@ export default function AcercaDePanel() {
 
         <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm">
+            <p className="text-gray-400 font-medium mb-1">Twelve Data</p>
+            <p className="text-gray-500">
+              API con tier gratuito (<strong className="text-gray-300">800 req/día</strong>). Actualiza cada <strong className="text-gray-300">5 minutos</strong>.
+              Fuente primaria para forex (USDBRL, USDMXN, USDCOP), cobre (HG) y ECH.
+              También provee VIXY como proxy del VIX y USDCLP spot en horario BEC.
+              Requiere API key (registro gratuito).
+            </p>
+          </div>
+          <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm">
             <p className="text-gray-400 font-medium mb-1">Yahoo Finance</p>
             <p className="text-gray-500">
               API no oficial (crumb auth). Actualiza cada <strong className="text-gray-300">5 minutos</strong>.
-              Cubre DXY, VIX, cobre, US10Y, ECH y todos los pares forex.
+              Fuente primaria para DXY, VIX y US10Y.
+              Fallback para forex, cobre y ECH cuando Twelve Data no responde.
               No requiere API key; datos con ~15 min de delay para algunos instrumentos.
             </p>
           </div>
@@ -200,7 +221,8 @@ export default function AcercaDePanel() {
             <p className="text-gray-500">
               API oficial del Banco Central Europeo. <strong className="text-gray-300">Gratuita, sin registro</strong>.
               Actualiza cada <strong className="text-gray-300">30 segundos</strong> (aunque los datos son diarios).
-              Cubre USDBRL, USDMXN, USDCOP. Sirve de respaldo cuando Yahoo no responde.
+              Cubre USDBRL, USDMXN, USDCOP como fallback de último recurso.
+              También genera DXY_PROXY (1/EURUSD) como fallback del DXY real.
             </p>
           </div>
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm">
@@ -355,8 +377,8 @@ export default function AcercaDePanel() {
             Los betas iniciales son estimaciones; la precisión mejora con cada recalibración sobre datos propios.
           </li>
           <li className="flex gap-2"><span className="text-amber-500 shrink-0">—</span>
-            Yahoo Finance puede experimentar delays o rate-limiting; en ese caso el modelo opera
-            con los factores disponibles (Frankfurter) y renormaliza.
+            Twelve Data y Yahoo Finance pueden experimentar delays o rate-limiting; en ese caso el modelo
+            opera con los factores disponibles (Frankfurter como último recurso) y renormaliza.
           </li>
           <li className="flex gap-2"><span className="text-amber-500 shrink-0">—</span>
             El NDF USDCLP 1M (beta más alto: 0.55) actualmente usa un stub estático.
