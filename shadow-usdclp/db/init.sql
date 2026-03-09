@@ -15,6 +15,7 @@ CREATE TABLE price_ticks (
     raw_json    JSONB                 -- full response for auditing
 );
 SELECT create_hypertable('price_ticks', 'time');
+CREATE UNIQUE INDEX ON price_ticks (time, source, symbol);
 CREATE INDEX ON price_ticks (source, symbol, time DESC);
 CREATE INDEX ON price_ticks (symbol, time DESC);
 

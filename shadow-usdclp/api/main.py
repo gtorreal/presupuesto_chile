@@ -2,6 +2,7 @@
 Shadow USDCLP - REST API (FastAPI)
 """
 
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,11 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 # Defaults to "*" for local dev; set explicitly in production.
 _raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
 ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",")]
+
+if "*" in ALLOWED_ORIGINS:
+    logging.getLogger(__name__).warning(
+        "CORS ALLOWED_ORIGINS contains '*' — all origins allowed. Set explicit origins for production."
+    )
 
 pool: asyncpg.Pool | None = None
 

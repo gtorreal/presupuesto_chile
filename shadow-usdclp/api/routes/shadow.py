@@ -52,7 +52,7 @@ async def get_shadow_price(request: Request):
 
 
 @router.get("/shadow-price/history")
-async def get_shadow_history(request: Request, hours: int = Query(default=24, ge=1, le=8760)):
+async def get_shadow_history(request: Request, hours: int = Query(default=24, ge=1, le=720)):
     """Historical shadow prices for charting."""
     pool = request.app.state.pool
 

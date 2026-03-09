@@ -8,6 +8,7 @@ For now: reads from a manually-updated JSON file at /data/ndf_manual.json
 Format: {"usdclp_ndf_1m": 955.50, "updated_at": "2025-01-15T18:00:00Z"}
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -35,7 +36,8 @@ class NdfDataSource(DataSource):
             return []
 
         try:
-            data = json.loads(NDF_DATA_FILE.read_text())
+            content = await asyncio.to_thread(NDF_DATA_FILE.read_text)
+            data = json.loads(content)
             price = float(data["usdclp_ndf_1m"])
             updated_at_str = data.get("updated_at", "")
 

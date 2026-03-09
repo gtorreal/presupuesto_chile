@@ -265,16 +265,26 @@ async def calculate_shadow(pool: asyncpg.Pool, confidence_k: float = 2.0, sigma:
             model_version=f"{model_name}:no-factors",
         )
 
-    # Renormalize if some factors are missing
+    # Renormalize if some factors are missing (cap at 3x to prevent dangerous amplification)
+    MAX_RENORM_SCALE = 3.0
     if available_beta_sum < total_beta_sum and available_beta_sum > 0:
-        scale = total_beta_sum / available_beta_sum
+        scale = min(total_beta_sum / available_beta_sum, MAX_RENORM_SCALE)
         weighted_sum *= scale
-        logger.info(
-            "Renormalizing: using %.0f%% of beta weight (%d/%d factors)",
-            100 * available_beta_sum / total_beta_sum,
-            len(factors_used),
-            len(BETA_TO_SYMBOL),
-        )
+        if total_beta_sum / available_beta_sum > MAX_RENORM_SCALE:
+            logger.warning(
+                "Renormalization capped at %.1fx (raw would be %.1fx) — too few factors (%d/%d)",
+                MAX_RENORM_SCALE,
+                total_beta_sum / available_beta_sum,
+                len(factors_used),
+                len(BETA_TO_SYMBOL),
+            )
+        else:
+            logger.info(
+                "Renormalizing: using %.0f%% of beta weight (%d/%d factors)",
+                100 * available_beta_sum / total_beta_sum,
+                len(factors_used),
+                len(BETA_TO_SYMBOL),
+            )
 
     shadow_price = bec_close * (1 + weighted_sum)
 

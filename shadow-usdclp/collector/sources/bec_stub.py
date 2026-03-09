@@ -15,6 +15,7 @@ CSV format (bec_close.csv):
   2025-01-14,948.50
 """
 
+import asyncio
 import csv
 import json
 import logging
@@ -55,9 +56,10 @@ class BecDataSource(DataSource):
 
         try:
             suffix = BEC_DATA_FILE.suffix.lower()
+            content = await asyncio.to_thread(BEC_DATA_FILE.read_text)
 
             if suffix == ".json":
-                data = json.loads(BEC_DATA_FILE.read_text())
+                data = json.loads(content)
                 price = float(data["usdclp_close"])
                 date_str = data.get("date", "")
                 try:
@@ -67,7 +69,7 @@ class BecDataSource(DataSource):
                 raw = data
 
             elif suffix == ".csv":
-                rows = list(csv.DictReader(BEC_DATA_FILE.read_text().splitlines()))
+                rows = list(csv.DictReader(content.splitlines()))
                 if not rows:
                     return []
                 latest = rows[-1]

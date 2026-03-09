@@ -4,6 +4,8 @@ Public API endpoints — authenticated via API key (X-API-Key header).
 These endpoints are excluded from JWT middleware and validated here directly.
 """
 
+import time
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -12,6 +14,11 @@ from auth import hash_api_key
 from routes.shadow import parse_jsonb
 
 router = APIRouter(prefix="/api/v1/public", tags=["Public API"])
+
+# ── Rate limiting per API key ─────────────────────────────────────────────────
+_RATE_LIMIT = 60          # max requests per window
+_RATE_WINDOW_SECONDS = 60  # 1-minute window
+_request_log: dict[int, list[float]] = defaultdict(list)  # key_id → timestamps
 
 
 async def validate_api_key(request: Request) -> dict:
@@ -44,6 +51,17 @@ async def validate_api_key(request: Request) -> dict:
             """,
             row["key_id"],
         )
+
+    # Rate limit per API key
+    key_id = row["key_id"]
+    now = time.monotonic()
+    _request_log[key_id] = [t for t in _request_log[key_id] if now - t < _RATE_WINDOW_SECONDS]
+    if len(_request_log[key_id]) >= _RATE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded ({_RATE_LIMIT} req/{_RATE_WINDOW_SECONDS}s). Try again later.",
+        )
+    _request_log[key_id].append(now)
 
     return {"username": row["username"], "user_id": row["user_id"]}
 

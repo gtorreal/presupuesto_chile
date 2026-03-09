@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ class PriceTick:
     def __post_init__(self):
         if self.time.tzinfo is None:
             self.time = self.time.replace(tzinfo=timezone.utc)
+        if not math.isfinite(self.mid) or self.mid <= 0:
+            raise ValueError(f"Invalid mid price: {self.mid} (source={self.source}, symbol={self.symbol})")
 
 
 class DataSource(ABC):

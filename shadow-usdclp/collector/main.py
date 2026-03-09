@@ -80,6 +80,7 @@ async def save_ticks(pool: asyncpg.Pool, ticks: list[PriceTick]) -> None:
             """
             INSERT INTO price_ticks (time, source, symbol, bid, ask, mid, volume, raw_json)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+            ON CONFLICT (time, source, symbol) DO NOTHING
             """,
             rows,
         )
