@@ -32,10 +32,6 @@ from sources.yfinance_source import YFinanceSource
 from sources.ndf_stub import NdfDataSource
 from sources.bec_stub import BecDataSource
 
-# Massive and TwelveData kept as stubs — enable when API keys are configured
-# from sources.massive import MassiveSource
-# from sources.twelvedata import TwelveDataSource
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
