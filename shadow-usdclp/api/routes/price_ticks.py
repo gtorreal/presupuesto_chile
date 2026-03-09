@@ -12,7 +12,6 @@ SYMBOLS = [
     ("USDCLP",      "usdclp_buda"),
     ("USDCLP_USDT", "usdclp_usdt"),
     ("USDCLP_SPOT", "usdclp_spot"),
-    ("USDCLP_BEC",  "usdclp_bec"),
     ("USDCLP_NDF",  "usdclp_ndf"),
     ("USDBRL",      "usdbrl"),
     ("USDMXN",      "usdmxn"),

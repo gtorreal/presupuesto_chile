@@ -25,7 +25,9 @@ const PRICE_SERIES = [
   { key: "shadow", label: "Shadow USDCLP", color: "#f59e0b", width: 2, dash: undefined },
   { key: "high",   label: "Banda alta",    color: "#d97706", width: 1, dash: "4 4" },
   { key: "low",    label: "Banda baja",    color: "#d97706", width: 1, dash: "4 4" },
-  { key: "bec",    label: "Cierre BEC",    color: "#6b7280", width: 1, dash: "8 4" },
+  { key: "usdclp_spot", label: "USDCLP Spot", color: "#94a3b8", width: 1, dash: "8 4" },
+  { key: "usdc_buda",   label: "USDC Buda",   color: "#22d3ee", width: 1, dash: undefined },
+  { key: "usdt_buda",   label: "USDT Buda",   color: "#a78bfa", width: 1, dash: undefined },
 ];
 
 // Factor Δ% series (eje derecho, %)
@@ -76,10 +78,11 @@ function clp(v) {
   return v.toFixed(2);
 }
 
-// Default: todos los precios ON, todos los factores OFF
+// Default: shadow + bandas ON, spot prices OFF, factores OFF
+const SPOT_KEYS = new Set(["usdclp_spot", "usdc_buda", "usdt_buda"]);
 const defaultVisible = () => {
   const state = {};
-  PRICE_SERIES.forEach((s) => (state[s.key] = true));
+  PRICE_SERIES.forEach((s) => (state[s.key] = SPOT_KEYS.has(s.key) ? false : true));
   DELTA_SERIES.forEach((s) => (state[s.key] = false));
   return state;
 };
@@ -118,7 +121,9 @@ export default function HistoricalChart() {
           high:   r.confidence_high,
           bandWidth: (r.confidence_high != null && r.confidence_low != null)
             ? r.confidence_high - r.confidence_low : null,
-          bec:    r.bec_last_close,
+          usdclp_spot: r.usdclp_spot,
+          usdc_buda:   r.usdclp_buda,
+          usdt_buda:   r.usdclp_usdt,
         };
         for (const [betaKey, chartKey] of Object.entries(DELTA_KEY_MAP)) {
           point[chartKey] = deltas[betaKey] != null ? deltas[betaKey] : null;
@@ -130,15 +135,16 @@ export default function HistoricalChart() {
 
   // Dominio del eje Y calculado desde los datos reales (evita que stacked areas lo distorsionen)
   const priceDomain = useMemo(() => {
+    const keys = PRICE_SERIES.filter((s) => visible[s.key]).map((s) => s.key);
     const prices = chartData.flatMap((d) =>
-      [d.shadow, d.low, d.high, d.bec].filter((v) => v != null)
+      keys.map((k) => d[k]).filter((v) => v != null)
     );
     if (!prices.length) return [undefined, undefined];
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const pad = Math.max(1, (max - min) * 0.1);
     return [Math.floor(min - pad), Math.ceil(max + pad)];
-  }, [chartData]);
+  }, [chartData, visible]);
 
   const hasDeltaSeries = DELTA_SERIES.some((s) => visible[s.key]);
 
@@ -172,7 +178,7 @@ export default function HistoricalChart() {
           <div>
             <h2 className="font-semibold text-gray-200">Histórico Shadow USDCLP</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {hasDeltaSeries ? "Precios (izq.) · Deltas % (der.)" : "Shadow vs cierre BEC"}
+              {hasDeltaSeries ? "Precios (izq.) · Deltas % (der.)" : "Shadow vs precios spot"}
             </p>
           </div>
           <div className="flex gap-1">
@@ -380,7 +386,9 @@ export default function HistoricalChart() {
                   <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">Shadow</th>
                   <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">Banda baja</th>
                   <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">Banda alta</th>
-                  <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">Cierre BEC</th>
+                  <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">USDCLP Spot</th>
+                  <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">USDC Buda</th>
+                  <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap">USDT Buda</th>
                   {DELTA_SERIES.map((s) => (
                     <th key={s.key} className="pb-2 pr-4 font-medium whitespace-nowrap" style={{ color: s.color }}>
                       {s.label.replace(" (Δ%)", "")}
@@ -403,7 +411,9 @@ export default function HistoricalChart() {
                       <td className="py-1.5 pr-4 text-amber-400 font-mono">{clp(r.shadow_price)}</td>
                       <td className="py-1.5 pr-4 text-gray-300 font-mono">{clp(r.confidence_low)}</td>
                       <td className="py-1.5 pr-4 text-gray-300 font-mono">{clp(r.confidence_high)}</td>
-                      <td className="py-1.5 pr-4 text-gray-400 font-mono">{clp(r.bec_last_close)}</td>
+                      <td className="py-1.5 pr-4 text-gray-400 font-mono">{clp(r.usdclp_spot)}</td>
+                      <td className="py-1.5 pr-4 text-gray-400 font-mono">{clp(r.usdclp_buda)}</td>
+                      <td className="py-1.5 pr-4 text-gray-400 font-mono">{clp(r.usdclp_usdt)}</td>
                       {Object.entries(DELTA_KEY_MAP).map(([betaKey, _]) => {
                         const v = deltas[betaKey];
                         const isPos = v > 0;
