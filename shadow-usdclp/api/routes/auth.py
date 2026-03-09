@@ -12,6 +12,8 @@ router = APIRouter()
 
 # In-memory brute-force protection: track failed attempts per (ip, username).
 # Lockout after _MAX_ATTEMPTS failures within _WINDOW_SECONDS.
+# NOTE: State resets on container restart. Acceptable for internal app with few
+# users. For production-grade rate limiting, migrate to Redis or a DB table.
 _MAX_ATTEMPTS = 10
 _WINDOW_SECONDS = 300   # 5 minutes
 _LOCKOUT_SECONDS = 300  # 5 minutes

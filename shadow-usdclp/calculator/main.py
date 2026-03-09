@@ -33,6 +33,8 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 SHADOW_CALC_INTERVAL = int(os.getenv("SHADOW_CALC_INTERVAL_SECONDS", "30"))
 CONFIDENCE_K = float(os.getenv("CONFIDENCE_K", "2.0"))
 
+import threading
+_health_lock = threading.Lock()
 _last_shadow: ShadowResult | None = None
 _last_corr_run: datetime | None = None
 
@@ -87,7 +89,8 @@ async def shadow_loop(pool: asyncpg.Pool) -> None:
             result = await calculate_shadow(pool, CONFIDENCE_K, sigma=sigma)
             if result:
                 await save_shadow(pool, result)
-                _last_shadow = result
+                with _health_lock:
+                    _last_shadow = result
                 logger.info(
                     "Shadow USDCLP: %.2f [%.2f, %.2f] (BEC close: %.2f, %.1fh ago, %d factors)",
                     result.shadow_price,
@@ -120,7 +123,8 @@ async def correlation_loop(pool: asyncpg.Pool) -> None:
 
         try:
             await run_correlations(pool)
-            _last_corr_run = datetime.now(timezone.utc)
+            with _health_lock:
+                _last_corr_run = datetime.now(timezone.utc)
         except Exception as e:
             logger.error("Correlation engine error: %s", e)
 
@@ -130,11 +134,14 @@ async def correlation_loop(pool: asyncpg.Pool) -> None:
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
+            with _health_lock:
+                shadow = _last_shadow
+                corr = _last_corr_run
             body = json.dumps({
                 "status": "ok",
-                "last_shadow_time": _last_shadow.time.isoformat() if _last_shadow else None,
-                "last_shadow_price": _last_shadow.shadow_price if _last_shadow else None,
-                "last_corr_run": _last_corr_run.isoformat() if _last_corr_run else None,
+                "last_shadow_time": shadow.time.isoformat() if shadow else None,
+                "last_shadow_price": shadow.shadow_price if shadow else None,
+                "last_corr_run": corr.isoformat() if corr else None,
             }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

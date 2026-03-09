@@ -1,6 +1,4 @@
 import json
-import sys
-import os
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -65,35 +63,6 @@ async def get_model_params(request: Request):
         result["history"].append(entry)
 
     return result
-
-
-class RecalibrateRequest(BaseModel):
-    window_start: str  # "YYYY-MM-DD"
-    window_end: str
-
-
-@router.post("/model/recalibrate")
-async def recalibrate_model(req: RecalibrateRequest, request: Request):
-    """
-    Run OLS multi-factor regression and propose new betas.
-    Does NOT activate them — use /model/activate to do that.
-    """
-    pool = request.app.state.pool
-
-    # Import here to avoid loading heavy deps at startup
-    sys.path.insert(0, "/app")
-    try:
-        from correlation_engine import run_multifactor_regression
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Regression engine not available in API service")
-
-    try:
-        result = await run_multifactor_regression(pool, req.window_start, req.window_end)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 class ActivateRequest(BaseModel):

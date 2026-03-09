@@ -53,6 +53,29 @@ async def fetch_daily_prices(pool: asyncpg.Pool, symbol: str, days: int) -> pd.S
     return pd.Series(values, index=pd.DatetimeIndex(dates), name=symbol)
 
 
+async def fetch_shadow_daily(pool: asyncpg.Pool, days: int) -> pd.Series:
+    """Fetch daily shadow prices from the shadow_usdclp table."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                time_bucket('1 day', time) AS day,
+                LAST(shadow_price, time) AS close
+            FROM shadow_usdclp
+            WHERE time > NOW() - ($1 || ' days')::INTERVAL
+            GROUP BY day
+            ORDER BY day
+            """,
+            str(days + 5),
+        )
+    if not rows:
+        return pd.Series(dtype=float)
+
+    dates = [r["day"].date() for r in rows]
+    values = [float(r["close"]) for r in rows]
+    return pd.Series(values, index=pd.DatetimeIndex(dates), name="SHADOW")
+
+
 async def get_usdclp_series(pool: asyncpg.Pool, days: int) -> pd.Series:
     """Get best available USDCLP daily series (BEC > OBS > Buda)."""
     for sym in ["USDCLP_BEC", "USDCLP_OBS", "USDCLP"]:
@@ -124,7 +147,7 @@ async def run_correlations(pool: asyncpg.Pool) -> None:
             )
 
         # Shadow vs real USDCLP correlation
-        shadow_series = await fetch_daily_prices(pool, "shadow_usdclp", window)
+        shadow_series = await fetch_shadow_daily(pool, window)
         if len(shadow_series) >= 10:
             shadow_ret = daily_returns(shadow_series)
             combined = pd.concat([usdclp_ret, shadow_ret.rename("SHADOW")], axis=1).dropna()

@@ -60,7 +60,9 @@ SLOW_SOURCES = [
 
 ALL_SOURCES = FAST_SOURCES + SLOW_SOURCES
 
-# State for health endpoint
+# State for health endpoint (shared between asyncio loop and HTTP thread)
+import threading
+_health_lock = threading.Lock()
 _last_fast_fetch: datetime | None = None
 _last_slow_fetch: datetime | None = None
 _last_tick_count: int = 0
@@ -103,6 +105,9 @@ async def run_sources(pool: asyncpg.Pool, sources: list) -> int:
 
     if all_ticks:
         await save_ticks(pool, all_ticks)
+        # Mark yfinance as seeded only after successful DB write
+        if not YFinanceSource._seeded and any(t.source == "yfinance_hist" for t in all_ticks):
+            YFinanceSource._seeded = True
 
     return len(all_ticks)
 
@@ -125,8 +130,9 @@ async def fast_loop(pool: asyncpg.Pool) -> None:
         interval = await get_config_interval(pool, "collector_fast_interval", config.POLL_INTERVAL_SECONDS)
         try:
             count = await run_sources(pool, FAST_SOURCES)
-            _last_tick_count = count
-            _last_fast_fetch = datetime.now(timezone.utc)
+            with _health_lock:
+                _last_tick_count = count
+                _last_fast_fetch = datetime.now(timezone.utc)
             if count:
                 logger.info("Fast sources: saved %d ticks", count)
         except Exception as e:
@@ -144,7 +150,8 @@ async def slow_loop(pool: asyncpg.Pool) -> None:
         interval = await get_config_interval(pool, "collector_yfinance_interval", YFINANCE_POLL_INTERVAL)
         try:
             count = await run_sources(pool, SLOW_SOURCES)
-            _last_slow_fetch = datetime.now(timezone.utc)
+            with _health_lock:
+                _last_slow_fetch = datetime.now(timezone.utc)
             if count:
                 logger.info("Slow sources (yfinance): saved %d ticks", count)
         except Exception as e:
@@ -159,11 +166,15 @@ async def slow_loop(pool: asyncpg.Pool) -> None:
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
+            with _health_lock:
+                fast = _last_fast_fetch.isoformat() if _last_fast_fetch else None
+                slow = _last_slow_fetch.isoformat() if _last_slow_fetch else None
+                ticks = _last_tick_count
             body = json.dumps({
                 "status": "ok",
-                "last_fast_fetch": _last_fast_fetch.isoformat() if _last_fast_fetch else None,
-                "last_slow_fetch": _last_slow_fetch.isoformat() if _last_slow_fetch else None,
-                "last_tick_count": _last_tick_count,
+                "last_fast_fetch": fast,
+                "last_slow_fetch": slow,
+                "last_tick_count": ticks,
                 "sources": [
                     {"name": s.name, "enabled": s.is_enabled, "loop": "fast"}
                     for s in FAST_SOURCES

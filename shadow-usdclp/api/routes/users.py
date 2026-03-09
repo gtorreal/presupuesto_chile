@@ -5,6 +5,8 @@ All routes require a valid JWT (enforced by JWTAuthMiddleware in main.py).
 User-management routes (list/create/delete) additionally require the 'admin' role.
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
@@ -47,7 +49,7 @@ def _client_ip(request: Request) -> str | None:
 class CreateUserRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=6)
-    role: str = "admin"
+    role: Literal["admin", "viewer"] = "admin"
 
 
 class ChangePasswordRequest(BaseModel):

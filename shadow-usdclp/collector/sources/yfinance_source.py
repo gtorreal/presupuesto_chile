@@ -76,7 +76,10 @@ async def _get_crumb(session: aiohttp.ClientSession) -> str | None:
 
 async def _fetch_one(
     session: aiohttp.ClientSession, yahoo_ticker: str, crumb: str | None
-) -> float | None:
+) -> tuple[float | None, list[tuple[datetime, float]]]:
+    """Returns (current_price, historical_bars).
+    historical_bars is a list of (timestamp, close) for the last 5 days of hourly bars.
+    """
     url = CHART_URL.format(ticker=yahoo_ticker)
     params: dict = {"interval": "1h", "range": "5d"}
     if crumb:
@@ -88,28 +91,43 @@ async def _fetch_one(
         ) as resp:
             if resp.status == 429:
                 logger.warning("Yahoo 429 for %s — will retry next cycle", yahoo_ticker)
-                return None
+                return None, []
             resp.raise_for_status()
             data = await resp.json(content_type=None)
 
         result = data.get("chart", {}).get("result")
         if not result:
-            return None
+            return None, []
 
-        meta = result[0].get("meta", {})
+        result_data = result[0]
+        meta = result_data.get("meta", {})
+
+        # Current price
+        current_price = None
         price = meta.get("regularMarketPrice")
         if price is not None:
             f = float(price)
-            return f if not math.isnan(f) else None
+            current_price = f if not math.isnan(f) else None
 
-        # Fallback: last close from quotes array
-        closes = result[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
-        closes = [c for c in closes if c is not None]
-        return float(closes[-1]) if closes else None
+        if current_price is None:
+            closes = result_data.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+            closes = [c for c in closes if c is not None]
+            current_price = float(closes[-1]) if closes else None
+
+        # Historical hourly bars with actual timestamps
+        timestamps = result_data.get("timestamp", [])
+        closes_raw = result_data.get("indicators", {}).get("quote", [{}])[0].get("close", [])
+        historical: list[tuple[datetime, float]] = []
+        for ts, close in zip(timestamps, closes_raw):
+            if close is not None and not math.isnan(close):
+                bar_time = datetime.fromtimestamp(ts, tz=timezone.utc)
+                historical.append((bar_time, float(close)))
+
+        return current_price, historical
 
     except Exception as e:
         logger.debug("Yahoo Finance error for %s: %s", yahoo_ticker, e)
-        return None
+        return None, []
 
 
 class YFinanceSource(DataSource):
@@ -117,19 +135,24 @@ class YFinanceSource(DataSource):
     Free data source via Yahoo Finance chart API with crumb authentication.
     Replaces Massive.com (forex) and Twelve Data (indices/futures/ETFs).
     Recommended poll interval: 300s.
+
+    On first fetch, saves 5 days of hourly historical bars with real timestamps
+    so the calculator can find factor prices at the last BEC close time.
     """
 
     name = "yfinance"
+    _seeded: bool = False
 
     async def fetch(self) -> list[PriceTick]:
         now = datetime.now(timezone.utc)
         ticks = []
+        seed_this_run = not YFinanceSource._seeded
 
         async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar()) as session:
             crumb = await _get_crumb(session)
 
             for yahoo_ticker, symbol in TICKERS.items():
-                price = await _fetch_one(session, yahoo_ticker, crumb)
+                price, historical = await _fetch_one(session, yahoo_ticker, crumb)
 
                 if price is None:
                     logger.debug("yfinance: no data for %s (%s)", yahoo_ticker, symbol)
@@ -143,8 +166,27 @@ class YFinanceSource(DataSource):
                     ))
                     logger.debug("yfinance %s (%s): %.4f", yahoo_ticker, symbol, price)
 
+                # On first run, also save historical hourly bars so get_price_at_bec_close
+                # can find factor values at the last BEC close (e.g. last Friday 3:30 PM).
+                if seed_this_run and historical:
+                    for bar_time, bar_close in historical:
+                        ticks.append(PriceTick(
+                            time=bar_time,
+                            source="yfinance_hist",
+                            symbol=symbol,
+                            mid=bar_close,
+                            raw_json={"ticker": yahoo_ticker, "bar_close": bar_close, "seeded": True},
+                        ))
+                    logger.debug("yfinance seed %s: %d historical bars", symbol, len(historical))
+
                 # Polite delay between requests
                 await asyncio.sleep(1.5)
 
-        logger.info("yfinance: fetched %d/%d symbols", len(ticks), len(TICKERS))
+        if seed_this_run:
+            # NOTE: _seeded is set by collector/main.py AFTER save_ticks succeeds,
+            # to avoid losing seed data if the DB write fails.
+            hist_count = sum(1 for t in ticks if t.source == "yfinance_hist")
+            logger.info("yfinance: seeded %d historical bars across all symbols", hist_count)
+
+        logger.info("yfinance: fetched %d/%d symbols", sum(1 for t in ticks if t.source == "yfinance"), len(TICKERS))
         return ticks

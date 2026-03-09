@@ -47,6 +47,9 @@ CREATE TABLE model_params (
 );
 
 -- Seed default model params
+-- NOTE: Betas intentionally sum to 1.91, NOT 1.0. Each beta represents the
+-- sensitivity of USDCLP to a 1% move in that factor. Total > 1.0 reflects
+-- overlapping/correlated risk factors (a uniform 1% move → ~1.91% shadow change).
 INSERT INTO model_params (name, is_active, params, notes) VALUES (
     'default_v1',
     TRUE,
@@ -61,7 +64,7 @@ INSERT INTO model_params (name, is_active, params, notes) VALUES (
         "beta_usdcop": 0.08,
         "beta_ech": 0.03
     }'::jsonb,
-    'Initial hardcoded betas based on domain knowledge'
+    'Initial hardcoded betas based on domain knowledge. Sum=1.91 (intentional).'
 );
 
 -- Historical correlations
@@ -134,6 +137,21 @@ CREATE TABLE audit_log (
 CREATE INDEX idx_audit_log_ts ON audit_log (ts DESC);
 CREATE INDEX idx_audit_log_username ON audit_log (username, ts DESC);
 CREATE INDEX idx_audit_log_action ON audit_log (action, ts DESC);
+
+-- API keys for public API access
+CREATE TABLE api_keys (
+    id              SERIAL PRIMARY KEY,
+    user_id         INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_prefix      TEXT NOT NULL,
+    key_hash        TEXT NOT NULL,
+    label           TEXT NOT NULL DEFAULT 'default',
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    last_used_at    TIMESTAMPTZ,
+    is_active       BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX idx_api_keys_hash ON api_keys (key_hash) WHERE is_active = TRUE;
+CREATE INDEX idx_api_keys_user ON api_keys (user_id);
 
 -- Chilean holidays table
 CREATE TABLE cl_holidays (

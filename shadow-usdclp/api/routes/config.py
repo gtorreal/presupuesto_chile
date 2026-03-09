@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import decode_token
@@ -29,11 +29,11 @@ class ConfigPatch(BaseModel):
 @router.patch("/config")
 async def patch_config(req: ConfigPatch, request: Request):
     if req.key not in CONFIG_KEYS:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Unknown config key: {req.key}")
     if req.value < 5:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Minimum interval is 5 seconds")
+    if req.value > 3600:
+        raise HTTPException(status_code=400, detail="Maximum interval is 3600 seconds")
 
     pool = request.app.state.pool
     async with pool.acquire() as conn:
