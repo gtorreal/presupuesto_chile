@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from auth import decode_token, seed_users_if_empty
-from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes, price_ticks, audit_logs, api_keys, public
+from routes import shadow, correlations, model, config, auth as auth_routes, users as users_routes, price_ticks, audit_logs, api_keys, public, service_credentials
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 
@@ -90,6 +90,7 @@ app.include_router(audit_logs.router, prefix="/api/v1")
 app.include_router(api_keys.router)
 app.include_router(public.router)
 app.include_router(users_routes.router)
+app.include_router(service_credentials.router)
 
 
 @app.get("/health")

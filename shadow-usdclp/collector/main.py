@@ -5,8 +5,9 @@ Two polling loops:
   - Fast (POLL_INTERVAL_SECONDS, default 30s):
       Buda.com, mindicador.cl, CMF, Frankfurter (forex ECB), NDF stub, BEC stub
   - Slow (YFINANCE_POLL_INTERVAL_SECONDS, default 300s):
-      Yahoo Finance — USDBRL, USDMXN, USDCOP, DXY, VIX, Copper, US10Y, ECH
-      (Yahoo data takes priority over Frankfurter when available)
+      Twelve Data — USDBRL, USDMXN, USDCOP, DXY, VIX, Copper, US10Y, ECH
+      Yahoo Finance — same symbols (fallback, may be rate-limited)
+      (First source to return data wins via ON CONFLICT DO NOTHING)
 
 Health endpoint: http://0.0.0.0:8001/health
 """
@@ -23,12 +24,14 @@ from threading import Thread
 import asyncpg
 
 import config
+import credential_store
 from sources.base import PriceTick
 from sources.buda import BudaSource
 from sources.mindicador import MindicadorSource
 from sources.cmf import CmfSource
 from sources.frankfurter import FrankfurterSource
 from sources.yfinance_source import YFinanceSource
+from sources.twelvedata import TwelveDataSource
 from sources.ndf_stub import NdfDataSource
 from sources.bec_stub import BecDataSource
 
@@ -44,17 +47,39 @@ YFINANCE_POLL_INTERVAL = int(os.getenv("YFINANCE_POLL_INTERVAL_SECONDS", "300"))
 FAST_SOURCES = [
     BudaSource(),
     MindicadorSource(),
-    CmfSource(),
+    CmfSource(api_key=config.CMF_API_KEY),
     FrankfurterSource(),   # ECB forex: USDBRL, USDMXN, USDCOP, DXY proxy. Free, official.
     NdfDataSource(),
     BecDataSource(),
 ]
 
 SLOW_SOURCES = [
-    YFinanceSource(),
+    TwelveDataSource(api_key=config.TWELVEDATA_API_KEY),
+    YFinanceSource(),  # fallback — may be rate-limited
 ]
 
 ALL_SOURCES = FAST_SOURCES + SLOW_SOURCES
+
+
+async def refresh_credentials(pool: asyncpg.Pool) -> None:
+    """Refresh API keys from DB for all sources that use credentials."""
+    try:
+        creds = await credential_store.get_all_credentials(pool)
+    except Exception as e:
+        logger.warning("Failed to refresh credentials: %s", e)
+        return
+
+    # Update TwelveData
+    td_key = creds.get(("twelvedata", "api_key"), "")
+    for src in SLOW_SOURCES:
+        if isinstance(src, TwelveDataSource) and td_key:
+            src._api_key = td_key
+
+    # Update CMF
+    cmf_key = creds.get(("cmf", "api_key"), "")
+    for src in FAST_SOURCES:
+        if isinstance(src, CmfSource) and cmf_key:
+            src._api_key = cmf_key
 
 # State for health endpoint (shared between asyncio loop and HTTP thread)
 import threading
@@ -124,6 +149,7 @@ async def fast_loop(pool: asyncpg.Pool) -> None:
     while True:
         start = datetime.now(timezone.utc)
         interval = await get_config_interval(pool, "collector_fast_interval", config.POLL_INTERVAL_SECONDS)
+        await refresh_credentials(pool)
         try:
             count = await run_sources(pool, FAST_SOURCES)
             with _health_lock:
@@ -144,12 +170,13 @@ async def slow_loop(pool: asyncpg.Pool) -> None:
     while True:
         start = datetime.now(timezone.utc)
         interval = await get_config_interval(pool, "collector_yfinance_interval", YFINANCE_POLL_INTERVAL)
+        await refresh_credentials(pool)
         try:
             count = await run_sources(pool, SLOW_SOURCES)
             with _health_lock:
                 _last_slow_fetch = datetime.now(timezone.utc)
             if count:
-                logger.info("Slow sources (yfinance): saved %d ticks", count)
+                logger.info("Slow sources (twelvedata+yfinance): saved %d ticks", count)
         except Exception as e:
             logger.error("Slow loop DB error: %s", e)
 
@@ -209,6 +236,10 @@ async def main():
     logger.info("Slow sources: %s", [s.name for s in SLOW_SOURCES if s.is_enabled])
 
     pool = await asyncpg.create_pool(config.DATABASE_URL, min_size=2, max_size=5)
+
+    # Seed credentials from env vars to DB (one-time), then load them
+    await credential_store.seed_from_env(pool)
+    await refresh_credentials(pool)
 
     # Skip yfinance historical re-seed if data already exists in the DB.
     # _seeded is in-memory and resets on every restart; this check makes it persistent.

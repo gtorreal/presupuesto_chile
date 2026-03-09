@@ -26,6 +26,8 @@ services:
       CMF_API_KEY: ${CMF_API_KEY:-}
       BUDA_API_KEY: ${BUDA_API_KEY:-}
       BUDA_API_SECRET: ${BUDA_API_SECRET:-}
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -59,6 +61,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
       JWT_EXPIRE_HOURS: ${JWT_EXPIRE_HOURS:-8}
       AUTH_USERS: ${AUTH_USERS:-admin:shadow}
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:-}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:

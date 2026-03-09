@@ -651,6 +651,188 @@ function ApiKeysSection({ onShowDocs }) {
 }
 
 // ---------------------------------------------------------------------------
+// Service Credentials Section (admin only)
+// ---------------------------------------------------------------------------
+
+const CREDENTIAL_KEY_LABELS = {
+  api_key: "API Key",
+  api_secret: "API Secret",
+};
+
+function ServiceCredentialsSection() {
+  const [creds, setCreds] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch("/api/v1/service-credentials");
+      setCreds(data);
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleSave(c) {
+    if (!editValue.trim()) return;
+    setSaving(true);
+    setMsg(null);
+    try {
+      await apiFetch(`/api/v1/service-credentials/${c.service_name}/${c.credential_key}`, {
+        method: "PUT",
+        body: JSON.stringify({ value: editValue }),
+      });
+      setEditingId(null);
+      setEditValue("");
+      setMsg({ type: "ok", text: `${c.service_label} ${CREDENTIAL_KEY_LABELS[c.credential_key] || c.credential_key} actualizada.` });
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleClear(c) {
+    if (!window.confirm(`¿Eliminar la credencial de ${c.service_label} (${CREDENTIAL_KEY_LABELS[c.credential_key] || c.credential_key})?`)) return;
+    setMsg(null);
+    try {
+      await apiFetch(`/api/v1/service-credentials/${c.service_name}/${c.credential_key}`, {
+        method: "DELETE",
+      });
+      setMsg({ type: "ok", text: `Credencial de ${c.service_label} eliminada.` });
+      await load();
+    } catch (e) {
+      setMsg({ type: "err", text: e.message });
+    }
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-gray-200">Credenciales de servicios externos</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          API keys de los servicios de datos conectados. Los cambios se aplican sin reiniciar.
+        </p>
+      </div>
+
+      {msg && (
+        <p className={`text-xs rounded-lg px-3 py-2 mb-3 ${msg.type === "ok" ? "bg-emerald-950 border border-emerald-900 text-emerald-400" : "bg-red-950 border border-red-900 text-red-400"}`}>
+          {msg.text}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-xs text-gray-500 py-4 text-center">Cargando...</p>
+      ) : (
+        <div className="space-y-3">
+          {creds.map((c) => (
+            <div key={c.id} className="p-3 bg-gray-800/50 rounded-lg border border-gray-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-medium text-gray-200">{c.service_label}</span>
+                  <span className="text-xs text-gray-500">{CREDENTIAL_KEY_LABELS[c.credential_key] || c.credential_key}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {c.is_set ? (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-900">
+                      Configurada
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 border border-gray-700">
+                      No configurada
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Masked value + meta */}
+              {c.is_set && editingId !== c.id && (
+                <div className="mt-2 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <code className="text-xs text-gray-400 font-mono">{c.masked_value}</code>
+                    {c.updated_at && (
+                      <span className="text-xs text-gray-600">
+                        {new Date(c.updated_at).toLocaleString("es-CL")}
+                        {c.updated_by && ` (${c.updated_by})`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setEditingId(c.id); setEditValue(""); setMsg(null); }}
+                      className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => handleClear(c)}
+                      className="text-xs text-gray-600 hover:text-red-400 transition-colors"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Not set — show edit button */}
+              {!c.is_set && editingId !== c.id && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => { setEditingId(c.id); setEditValue(""); setMsg(null); }}
+                    className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                  >
+                    Configurar
+                  </button>
+                </div>
+              )}
+
+              {/* Edit form */}
+              {editingId === c.id && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    type="password"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    placeholder="Ingresa la API key"
+                    autoFocus
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-amber-500 transition-colors font-mono"
+                  />
+                  <button
+                    onClick={() => handleSave(c)}
+                    disabled={saving || !editValue.trim()}
+                    className="text-xs bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-900 font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    {saving ? "..." : "Guardar"}
+                  </button>
+                  <button
+                    onClick={() => { setEditingId(null); setEditValue(""); }}
+                    className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1.5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {creds.length === 0 && (
+            <p className="text-xs text-gray-600 py-4 text-center">No hay servicios configurados.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Settings Panel
 // ---------------------------------------------------------------------------
 
@@ -673,6 +855,16 @@ export default function SettingsPanel({ currentUser, onShowDocs }) {
         </h2>
         <ApiKeysSection onShowDocs={onShowDocs} />
       </section>
+
+      {/* Credenciales de servicios — admin only */}
+      {currentUser.role === "admin" && (
+        <section>
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            Servicios externos
+          </h2>
+          <ServiceCredentialsSection />
+        </section>
+      )}
 
       {/* Cuentas y permisos — admin only */}
       {currentUser.role === "admin" && (

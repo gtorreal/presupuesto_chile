@@ -3,8 +3,6 @@ from datetime import datetime, timezone
 
 import aiohttp
 
-import config
-
 from .base import DataSource, PriceTick
 
 logger = logging.getLogger(__name__)
@@ -20,16 +18,19 @@ class CmfSource(DataSource):
 
     name = "cmf"
 
+    def __init__(self, api_key: str = ""):
+        self._api_key = api_key
+
     @property
     def is_enabled(self) -> bool:
-        return bool(config.CMF_API_KEY)
+        return bool(self._api_key)
 
     async def fetch(self) -> list[PriceTick]:
         if not self.is_enabled:
             return []
 
         try:
-            params = {"apikey": config.CMF_API_KEY, "formato": "json"}
+            params = {"apikey": self._api_key, "formato": "json"}
             async with aiohttp.ClientSession() as session:
                 async with session.get(URL, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     resp.raise_for_status()
