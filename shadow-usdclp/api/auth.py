@@ -16,10 +16,10 @@ from typing import Optional
 
 import pyotp
 from fastapi import HTTPException, Request
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = os.environ.get("JWT_SECRET", "insecure-default-change-in-production")
+SECRET_KEY = os.environ["JWT_SECRET"]  # Required — no insecure fallback
 ALGORITHM = "HS256"
 EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "8"))
 
@@ -46,7 +46,7 @@ def hash_api_key(key: str) -> str:
 def create_access_token(username: str, role: str = "admin") -> str:
     expire = datetime.now(timezone.utc) + timedelta(hours=EXPIRE_HOURS)
     payload = {"sub": username, "role": role, "exp": expire}
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)  # PyJWT returns str
 
 
 def decode_token(token: str) -> Optional[dict]:
@@ -57,7 +57,7 @@ def decode_token(token: str) -> Optional[dict]:
         if not username:
             return None
         return {"username": username, "role": payload.get("role", "admin")}
-    except JWTError:
+    except jwt.InvalidTokenError:
         return None
 
 
