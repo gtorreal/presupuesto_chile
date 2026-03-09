@@ -25,7 +25,7 @@ WINDOW_DAYS = [30, 60, 90, 180]
 FACTOR_SYMBOLS = ["USDBRL", "USDMXN", "USDCOP", "DXY", "COPPER", "VIX", "US10Y", "ECH"]
 INVERTED = {"COPPER", "ECH"}  # These move inversely with USDCLP
 
-USDCLP_SYMBOLS = ["USDCLP", "USDCLP_OBS", "USDCLP_USDT"]
+USDCLP_SYMBOLS = ["USDCLP", "USDCLP_SPOT", "USDCLP_OBS", "USDCLP_USDT"]
 
 
 async def fetch_daily_prices(pool: asyncpg.Pool, symbol: str, days: int) -> pd.Series:

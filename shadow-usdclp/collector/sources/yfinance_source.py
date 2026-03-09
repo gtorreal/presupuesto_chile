@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 import aiohttp
 
 from .base import DataSource, PriceTick
+from .market_hours import is_chilean_market_open
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +40,16 @@ TICKERS: dict[str, str] = {
     "USDBRL=X": "USDBRL",
     "USDMXN=X": "USDMXN",
     "USDCOP=X": "USDCOP",
+    "USDCLP=X": "USDCLP_SPOT",
     "DX-Y.NYB": "DXY",
     "HG=F":     "COPPER",
     "^VIX":     "VIX",
     "^TNX":     "US10Y",
     "ECH":      "ECH",
 }
+
+# Symbols that should only be fetched during Chilean market hours
+MARKET_HOURS_ONLY = {"USDCLP_SPOT"}
 
 CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{ticker}"
 CRUMB_URL = "https://query2.finance.yahoo.com/v1/test/getcrumb"
@@ -186,6 +191,10 @@ class YFinanceSource(DataSource):
                 attempted = len(TICKERS)
             else:
                 for yahoo_ticker, symbol in TICKERS.items():
+                    if symbol in MARKET_HOURS_ONLY and not is_chilean_market_open(now):
+                        logger.debug("yfinance: skipping %s (market closed)", symbol)
+                        continue
+
                     attempted += 1
                     price, historical = await _fetch_one(session, yahoo_ticker, crumb_result.crumb)
 

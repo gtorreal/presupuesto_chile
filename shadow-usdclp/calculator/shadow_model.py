@@ -156,7 +156,7 @@ async def get_price_at_bec_close(pool: asyncpg.Pool, symbol: str, bec_close_time
 async def get_bec_last_close(pool: asyncpg.Pool) -> tuple[float, datetime]:
     """
     Get the most recent official BEC close price and its time.
-    Priority: bec_stub > USDCLP_OBS (mindicador/CMF)
+    Priority: USDCLP_BEC > USDCLP_SPOT > USDCLP_OBS > USDCLP (Buda)
     Falls back to last Buda USDCLP tick if nothing else available.
     """
     async with pool.acquire() as conn:
@@ -165,6 +165,17 @@ async def get_bec_last_close(pool: asyncpg.Pool) -> tuple[float, datetime]:
             """
             SELECT mid, time FROM price_ticks
             WHERE symbol = 'USDCLP_BEC'
+            ORDER BY time DESC LIMIT 1
+            """
+        )
+        if row:
+            return float(row["mid"]), row["time"]
+
+        # Try real-time spot (Twelve Data / Yahoo Finance)
+        row = await conn.fetchrow(
+            """
+            SELECT mid, time FROM price_ticks
+            WHERE symbol = 'USDCLP_SPOT'
             ORDER BY time DESC LIMIT 1
             """
         )
@@ -208,7 +219,7 @@ async def get_model_error_stddev(pool: asyncpg.Pool) -> float:
             FROM shadow_usdclp s
             JOIN LATERAL (
                 SELECT mid FROM price_ticks
-                WHERE symbol IN ('USDCLP', 'USDCLP_OBS')
+                WHERE symbol IN ('USDCLP', 'USDCLP_SPOT', 'USDCLP_OBS')
                   AND time BETWEEN s.time - INTERVAL '5 minutes' AND s.time + INTERVAL '5 minutes'
                 ORDER BY ABS(EXTRACT(EPOCH FROM (time - s.time))) LIMIT 1
             ) p ON TRUE

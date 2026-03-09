@@ -2,13 +2,14 @@
 Twelve Data source — replaces Yahoo Finance for macro/forex/commodity data.
 
 Free tier: 800 requests/day, 8 requests/minute.
-With 8 symbols polled every 15 minutes: ~768 req/day (fits within limits).
+With 7 symbols polled every 15 minutes: ~672 req/day + USDCLP_SPOT only
+during Chilean market hours (~26 req/day) = ~698 req/day (fits within limits).
 
 API docs: https://twelvedata.com/docs
 API key required (free registration at twelvedata.com).
 
 Covers (free tier):
-  - Forex:       USD/BRL, USD/MXN, USD/COP
+  - Forex:       USD/BRL, USD/MXN, USD/COP, USD/CLP (spot, market hours only)
   - Commodities: Copper (HG)
   - ETFs:        ECH (iShares Chile), VIXY (VIX proxy)
 
@@ -25,6 +26,7 @@ from datetime import datetime, timezone
 import aiohttp
 
 from .base import DataSource, PriceTick
+from .market_hours import is_chilean_market_open
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +36,14 @@ SYMBOLS: dict[str, str] = {
     "USD/BRL": "USDBRL",
     "USD/MXN": "USDMXN",
     "USD/COP": "USDCOP",
+    "USD/CLP": "USDCLP_SPOT",
     "HG":      "COPPER",
     "ECH":     "ECH",
     "VIXY":    "VIX_PROXY",  # ProShares VIX Short-Term Futures ETF (tracks VIX)
 }
+
+# Symbols that should only be fetched during Chilean market hours
+MARKET_HOURS_ONLY = {"USDCLP_SPOT"}
 
 PRICE_URL = "https://api.twelvedata.com/price"
 
@@ -81,7 +87,8 @@ async def _fetch_one(
 class TwelveDataSource(DataSource):
     """
     Market data via Twelve Data API.
-    Covers forex (3), Copper, ECH, and VIXY (VIX proxy) on free tier.
+    Covers forex (4, incl. USD/CLP spot), Copper, ECH, and VIXY (VIX proxy) on free tier.
+    USD/CLP only fetched during Chilean market hours (Mon-Fri 9:30-16:00 CLT).
     DXY covered by Frankfurter; US10Y/VIX by Yahoo Finance fallback.
     Recommended poll interval: 900s (15 min) to stay within free tier limits.
     """
@@ -109,6 +116,10 @@ class TwelveDataSource(DataSource):
 
         async with aiohttp.ClientSession() as session:
             for td_symbol, internal_symbol in SYMBOLS.items():
+                if internal_symbol in MARKET_HOURS_ONLY and not is_chilean_market_open(now):
+                    logger.debug("twelvedata: skipping %s (market closed)", internal_symbol)
+                    continue
+
                 price = await _fetch_one(session, td_symbol, self._api_key)
 
                 if price is not None:

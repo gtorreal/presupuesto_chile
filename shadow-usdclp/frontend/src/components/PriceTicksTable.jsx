@@ -5,7 +5,7 @@ const COLUMNS = [
   { key: "shadow_price", label: "Shadow USDCLP", group: "index", color: "#f59e0b" },
   { key: "usdclp_buda",  label: "USDC Buda",     group: "spot" },
   { key: "usdclp_usdt",  label: "USDT Buda",     group: "spot" },
-  { key: "usdclp_obs",   label: "Dólar Obs.",     group: "spot" },
+  { key: "usdclp_spot",  label: "Dólar",           group: "spot" },
   { key: "usdclp_bec",   label: "Cierre BEC",     group: "spot" },
   { key: "usdclp_ndf",   label: "NDF 1M",         group: "spot" },
   { key: "usdbrl",       label: "USDBRL",         group: "forex" },
