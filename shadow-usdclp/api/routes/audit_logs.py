@@ -2,6 +2,8 @@
 Audit log query endpoint (admin only).
 """
 
+import json
+
 from fastapi import APIRouter, HTTPException, Request
 
 from auth import decode_token
@@ -76,7 +78,7 @@ async def get_audit_logs(
                 "ts": r["ts"].isoformat(),
                 "username": r["username"],
                 "action": r["action"],
-                "detail": r["detail"] if r["detail"] else None,
+                "detail": json.loads(r["detail"]) if r["detail"] else None,
                 "ip": r["ip"],
             }
             for r in rows
