@@ -4,6 +4,7 @@ Twelve Data source — replaces Yahoo Finance for macro/forex/commodity data.
 Free tier: 800 requests/day, 8 requests/minute.
 With 7 symbols polled every 15 minutes: ~672 req/day + USDCLP_SPOT only
 during Chilean market hours (~26 req/day) = ~698 req/day (fits within limits).
+On Chilean holidays, USDCLP_SPOT is skipped entirely, saving ~26 req/day.
 
 API docs: https://twelvedata.com/docs
 API key required (free registration at twelvedata.com).
