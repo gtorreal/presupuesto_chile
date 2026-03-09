@@ -19,6 +19,7 @@ Covers all external factors for free:
 import asyncio
 import logging
 import math
+import time
 from datetime import datetime, timezone
 
 import aiohttp
@@ -26,6 +27,12 @@ import aiohttp
 from .base import DataSource, PriceTick
 
 logger = logging.getLogger(__name__)
+
+# Backoff state for 429 rate limiting
+_backoff_until: float = 0.0          # time.monotonic() timestamp when backoff expires
+_consecutive_429: int = 0            # count of consecutive all-429 cycles
+_BACKOFF_BASE: int = 300             # base delay in seconds (= normal poll interval)
+_BACKOFF_MAX: int = 3600             # max delay: 1 hour
 
 # Yahoo ticker → our internal symbol name
 TICKERS: dict[str, str] = {
@@ -56,7 +63,16 @@ HEADERS = {
 }
 
 
-async def _get_crumb(session: aiohttp.ClientSession) -> str | None:
+class _CrumbResult:
+    """Result of crumb fetch — distinguishes 429 from other failures."""
+    __slots__ = ("crumb", "is_rate_limited")
+
+    def __init__(self, crumb: str | None, is_rate_limited: bool = False):
+        self.crumb = crumb
+        self.is_rate_limited = is_rate_limited
+
+
+async def _get_crumb(session: aiohttp.ClientSession) -> _CrumbResult:
     """Fetch Yahoo Finance crumb required for authenticated API calls."""
     try:
         # Step 1: get cookies
@@ -67,11 +83,14 @@ async def _get_crumb(session: aiohttp.ClientSession) -> str | None:
                 crumb = await r.text()
                 crumb = crumb.strip()
                 logger.debug("Got Yahoo crumb: %s", crumb[:8] + "...")
-                return crumb
+                return _CrumbResult(crumb)
+            if r.status == 429:
+                logger.warning("Crumb fetch returned HTTP 429 — rate limited")
+                return _CrumbResult(None, is_rate_limited=True)
             logger.warning("Crumb fetch returned HTTP %d", r.status)
     except Exception as e:
         logger.warning("Could not get Yahoo crumb: %s", e)
-    return None
+    return _CrumbResult(None)
 
 
 async def _fetch_one(
@@ -144,43 +163,84 @@ class YFinanceSource(DataSource):
     _seeded: bool = False
 
     async def fetch(self) -> list[PriceTick]:
+        global _backoff_until, _consecutive_429
+
+        # Check backoff — skip this cycle if we're still in cooldown
+        remaining = _backoff_until - time.monotonic()
+        if remaining > 0:
+            logger.info("yfinance: backoff active, skipping (%.0fs remaining)", remaining)
+            return []
+
         now = datetime.now(timezone.utc)
         ticks = []
         seed_this_run = not YFinanceSource._seeded
+        got_429 = 0
+        attempted = 0
 
         async with aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar()) as session:
-            crumb = await _get_crumb(session)
+            crumb_result = await _get_crumb(session)
 
-            for yahoo_ticker, symbol in TICKERS.items():
-                price, historical = await _fetch_one(session, yahoo_ticker, crumb)
+            # If crumb fetch itself got 429, don't bother trying individual symbols
+            if crumb_result.is_rate_limited:
+                got_429 = len(TICKERS)
+                attempted = len(TICKERS)
+            else:
+                for yahoo_ticker, symbol in TICKERS.items():
+                    attempted += 1
+                    price, historical = await _fetch_one(session, yahoo_ticker, crumb_result.crumb)
 
-                if price is None:
-                    logger.debug("yfinance: no data for %s (%s)", yahoo_ticker, symbol)
-                else:
-                    ticks.append(PriceTick(
-                        time=now,
-                        source=self.name,
-                        symbol=symbol,
-                        mid=price,
-                        raw_json={"ticker": yahoo_ticker, "price": price},
-                    ))
-                    logger.debug("yfinance %s (%s): %.4f", yahoo_ticker, symbol, price)
-
-                # On first run, also save historical hourly bars so get_price_at_bec_close
-                # can find factor values at the last BEC close (e.g. last Friday 3:30 PM).
-                if seed_this_run and historical:
-                    for bar_time, bar_close in historical:
+                    if price is None:
+                        # _fetch_one logs 429 specifically; count them for backoff
+                        got_429 += 1
+                        logger.debug("yfinance: no data for %s (%s)", yahoo_ticker, symbol)
+                    else:
                         ticks.append(PriceTick(
-                            time=bar_time,
-                            source="yfinance_hist",
+                            time=now,
+                            source=self.name,
                             symbol=symbol,
-                            mid=bar_close,
-                            raw_json={"ticker": yahoo_ticker, "bar_close": bar_close, "seeded": True},
+                            mid=price,
+                            raw_json={"ticker": yahoo_ticker, "price": price},
                         ))
-                    logger.debug("yfinance seed %s: %d historical bars", symbol, len(historical))
+                        logger.debug("yfinance %s (%s): %.4f", yahoo_ticker, symbol, price)
 
-                # Polite delay between requests
-                await asyncio.sleep(1.5)
+                    # On first run, also save historical hourly bars so get_price_at_bec_close
+                    # can find factor values at the last BEC close (e.g. last Friday 3:30 PM).
+                    if seed_this_run and historical:
+                        for bar_time, bar_close in historical:
+                            ticks.append(PriceTick(
+                                time=bar_time,
+                                source="yfinance_hist",
+                                symbol=symbol,
+                                mid=bar_close,
+                                raw_json={"ticker": yahoo_ticker, "bar_close": bar_close, "seeded": True},
+                            ))
+                        logger.debug("yfinance seed %s: %d historical bars", symbol, len(historical))
+
+                    # Polite delay between requests
+                    await asyncio.sleep(1.5)
+
+        # Backoff logic: if ALL symbols failed, increase backoff exponentially
+        if attempted > 0 and got_429 >= attempted:
+            _consecutive_429 += 1
+            delay = min(_BACKOFF_BASE * (2 ** _consecutive_429), _BACKOFF_MAX)
+            _backoff_until = time.monotonic() + delay
+            logger.warning(
+                "yfinance: all %d symbols got 429 (streak=%d) — backing off %ds",
+                attempted, _consecutive_429, delay,
+            )
+        elif got_429 > 0:
+            # Partial success — mild backoff but don't escalate
+            _backoff_until = time.monotonic() + _BACKOFF_BASE
+            logger.warning(
+                "yfinance: %d/%d symbols got 429 — mild backoff %ds",
+                got_429, attempted, _BACKOFF_BASE,
+            )
+        else:
+            # Full success — reset backoff
+            if _consecutive_429 > 0:
+                logger.info("yfinance: recovered from 429 backoff (was streak=%d)", _consecutive_429)
+            _consecutive_429 = 0
+            _backoff_until = 0.0
 
         if seed_this_run:
             # NOTE: _seeded is set by collector/main.py AFTER save_ticks succeeds,
