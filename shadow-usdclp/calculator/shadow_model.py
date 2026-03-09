@@ -40,6 +40,13 @@ BETA_TO_SYMBOL: dict[str, str] = {
 # Inverted factors (higher price → lower USDCLP)
 INVERTED_FACTORS = {"beta_copper_inv", "beta_ech"}
 
+# Proxy fallbacks: if primary symbol has no recent data, try these alternatives.
+# DXY_PROXY comes from Frankfurter (EUR/USD inverted); VIX_PROXY from VIXY ETF.
+SYMBOL_FALLBACKS: dict[str, list[str]] = {
+    "DXY": ["DXY_PROXY"],
+    "VIX": ["VIX_PROXY"],
+}
+
 
 @dataclass
 class ShadowResult:
@@ -69,55 +76,79 @@ async def get_active_params(pool: asyncpg.Pool) -> tuple[dict, str]:
 
 
 async def get_latest_price(pool: asyncpg.Pool, symbol: str) -> Optional[float]:
-    """Get the most recent mid price for a symbol (last 10 minutes)."""
+    """Get the most recent mid price for a symbol (last 10 minutes).
+    Falls back to proxy symbols (e.g. DXY → DXY_PROXY) if primary is unavailable."""
+    symbols_to_try = [symbol] + SYMBOL_FALLBACKS.get(symbol, [])
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT mid FROM price_ticks
-            WHERE symbol = $1
-              AND time > NOW() - INTERVAL '10 minutes'
-            ORDER BY time DESC LIMIT 1
-            """,
-            symbol,
-        )
-    return float(row["mid"]) if row else None
+        for sym in symbols_to_try:
+            row = await conn.fetchrow(
+                """
+                SELECT mid FROM price_ticks
+                WHERE symbol = $1
+                  AND time > NOW() - INTERVAL '10 minutes'
+                ORDER BY time DESC LIMIT 1
+                """,
+                sym,
+            )
+            if row:
+                if sym != symbol:
+                    logger.debug("Using fallback %s for %s (latest)", sym, symbol)
+                return float(row["mid"])
+    return None
 
 
 async def get_price_at_bec_close(pool: asyncpg.Pool, symbol: str, bec_close_time: datetime) -> Optional[float]:
     """
     Get the price of a symbol at the BEC close time.
+    Falls back to proxy symbols (e.g. DXY → DXY_PROXY) if primary is unavailable.
 
-    Search strategy (in order):
+    Search strategy (in order, for each symbol variant):
     1. Closest tick within ±2h of BEC close time (ideal).
-    2. Oldest available tick for the symbol (fallback when the source
-       started collecting after the BEC close — common during initial setup).
+    2. Oldest available tick within 6h of BEC close (initial setup fallback).
+    3. Last available tick before now (weekend/holiday fallback — markets closed,
+       so the last known price IS the correct reference price).
     """
+    symbols_to_try = [symbol] + SYMBOL_FALLBACKS.get(symbol, [])
     async with pool.acquire() as conn:
-        # Primary: look near the BEC close
-        row = await conn.fetchrow(
-            """
-            SELECT mid FROM price_ticks
-            WHERE symbol = $1
-              AND time BETWEEN $2::timestamptz - INTERVAL '2 hours' AND $2::timestamptz + INTERVAL '2 hours'
-            ORDER BY ABS(EXTRACT(EPOCH FROM (time - $2::timestamptz))) LIMIT 1
-            """,
-            symbol,
-            bec_close_time,
-        )
-        if row:
-            return float(row["mid"])
+        for sym in symbols_to_try:
+            # Primary: look near the BEC close
+            row = await conn.fetchrow(
+                """
+                SELECT mid FROM price_ticks
+                WHERE symbol = $1
+                  AND time BETWEEN $2::timestamptz - INTERVAL '2 hours' AND $2::timestamptz + INTERVAL '2 hours'
+                ORDER BY ABS(EXTRACT(EPOCH FROM (time - $2::timestamptz))) LIMIT 1
+                """,
+                sym,
+                bec_close_time,
+            )
+            if row:
+                if sym != symbol:
+                    logger.debug("Using fallback %s for %s (at_close)", sym, symbol)
+                return float(row["mid"])
 
-        # Fallback: use oldest available data point, but only if it's reasonably
-        # close to the BEC close time (within 6 hours). If the oldest tick is from
-        # today and the BEC close was last Friday, using it would give a near-zero
-        # delta that hides real market moves.
-        row = await conn.fetchrow(
-            "SELECT mid, time FROM price_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1",
-            symbol,
-        )
-        if row:
-            age_hours = abs((row["time"] - bec_close_time).total_seconds()) / 3600
-            if age_hours <= 6:
+            # Fallback 1: oldest tick within 6h of BEC close (initial setup).
+            row = await conn.fetchrow(
+                "SELECT mid, time FROM price_ticks WHERE symbol = $1 ORDER BY time ASC LIMIT 1",
+                sym,
+            )
+            if row:
+                age_hours = abs((row["time"] - bec_close_time).total_seconds()) / 3600
+                if age_hours <= 6:
+                    if sym != symbol:
+                        logger.debug("Using fallback %s for %s (at_close, oldest)", sym, symbol)
+                    return float(row["mid"])
+
+        # Fallback 2: last available tick for any symbol variant.
+        # Handles weekends/holidays where BEC close timestamp may be in the future
+        # and no ticks exist near that time. The last known price is the best reference.
+        for sym in symbols_to_try:
+            row = await conn.fetchrow(
+                "SELECT mid FROM price_ticks WHERE symbol = $1 ORDER BY time DESC LIMIT 1",
+                sym,
+            )
+            if row:
+                logger.debug("Using last available price for %s (at_close, last-known)", sym)
                 return float(row["mid"])
     return None
 
