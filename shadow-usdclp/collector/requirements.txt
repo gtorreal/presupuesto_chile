@@ -2,3 +2,4 @@ aiohttp==3.10.10
 asyncpg==0.30.0
 cryptography==44.0.0
 holidays==0.65
+pytest==8.3.4
