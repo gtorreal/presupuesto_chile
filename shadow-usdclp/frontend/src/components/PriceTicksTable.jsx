@@ -1,4 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api } from "../api/client";
 
 const COLUMNS = [
@@ -24,6 +27,34 @@ const GROUPS = [
   { id: "forex", label: "Forex" },
   { id: "macro", label: "Macro" },
 ];
+
+const COL_ORDER_KEY = "priceticks-col-order";
+const DEFAULT_ORDER = COLUMNS.map((c) => c.key);
+
+function SortableColumnHeader({ col }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: col.key });
+
+  const style = {
+    color: col.color || "#6b7280",
+    transform: CSS.Translate.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    cursor: "grab",
+  };
+
+  return (
+    <th
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className="pb-2 pr-4 font-medium whitespace-nowrap select-none"
+      style={style}
+    >
+      {col.label}
+    </th>
+  );
+}
 
 function formatNum(v, decimals = 2) {
   if (v == null) return "—";
@@ -55,6 +86,35 @@ export default function PriceTicksTable({ hours }) {
     return state;
   });
 
+  const [columnOrder, setColumnOrder] = useState(() => {
+    const currentKeys = new Set(DEFAULT_ORDER);
+    try {
+      const saved = JSON.parse(localStorage.getItem(COL_ORDER_KEY) || "[]");
+      const validSaved = saved.filter((k) => currentKeys.has(k));
+      const newKeys = DEFAULT_ORDER.filter((k) => !new Set(validSaved).has(k));
+      if (validSaved.length > 0) return [...validSaved, ...newKeys];
+    } catch (_) {}
+    return DEFAULT_ORDER;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(COL_ORDER_KEY, JSON.stringify(columnOrder));
+  }, [columnOrder]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setColumnOrder((prev) => {
+      const oldIndex = prev.indexOf(active.id);
+      const newIndex = prev.indexOf(over.id);
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  }
+
   const load = useCallback(async () => {
     try {
       const result = await api.getPriceTicksTable(hours, page);
@@ -85,7 +145,9 @@ export default function PriceTicksTable({ hours }) {
     });
   }
 
-  const activeCols = COLUMNS.filter((c) => visibleCols[c.key]);
+  const activeCols = columnOrder
+    .map((key) => COLUMNS.find((c) => c.key === key))
+    .filter((c) => c && visibleCols[c.key]);
 
   if (!data) {
     return (
@@ -146,6 +208,7 @@ export default function PriceTicksTable({ hours }) {
       </div>
 
       {/* Tabla */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="overflow-x-auto">
         <table className="w-full text-xs text-left">
           <thead>
@@ -153,15 +216,11 @@ export default function PriceTicksTable({ hours }) {
               <th className="pb-2 pr-4 text-gray-500 font-medium whitespace-nowrap sticky left-0 bg-gray-900 z-10">
                 Hora
               </th>
-              {activeCols.map((c) => (
-                <th
-                  key={c.key}
-                  className="pb-2 pr-4 font-medium whitespace-nowrap"
-                  style={{ color: c.color || "#6b7280" }}
-                >
-                  {c.label}
-                </th>
-              ))}
+              <SortableContext items={activeCols.map((c) => c.key)} strategy={horizontalListSortingStrategy}>
+                {activeCols.map((c) => (
+                  <SortableColumnHeader key={c.key} col={c} />
+                ))}
+              </SortableContext>
             </tr>
           </thead>
           <tbody>
@@ -207,6 +266,7 @@ export default function PriceTicksTable({ hours }) {
           </tbody>
         </table>
       </div>
+      </DndContext>
 
       {/* Paginación */}
       {data.total_pages > 1 && (
